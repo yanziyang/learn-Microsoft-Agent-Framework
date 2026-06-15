@@ -409,6 +409,31 @@ function rewriteChapterMarkdown(
     }
   );
 
+  // Fix "cd learn-claude-code" to "cd learn-Microsoft-Agent-Framework"
+  next = next.replace(/cd learn-claude-code/g, "cd learn-Microsoft-Agent-Framework");
+
+  // Fix old project names in dotnet run / cp commands
+  const PROJECT_RENAMES: Record<string, string> = {
+    "s01_agent_loop": "s03_agent_loop",
+    "s02_tool_use": "s04_tool_use",
+    "s03_permission": "s05_permission",
+    "s04_hooks": "s06_hooks",
+    "s05_todo_write": "s07_planning",
+    "s06_subagent": "s08_agent_as_tool",
+    "s07_skill_loading": "s09_skill_loading",
+    "s08_context_compact": "s10_context_compaction",
+    "s10_system_prompt": "s11_system_prompt",
+    "s11_error_recovery": "s12_error_recovery",
+    "s12_task_system": "s13_workflows",
+    "s13_background_tasks": "s14_background_tasks",
+    "s15_agent_teams": "s15_multi_agent_workflows",
+    "s16_team_protocols": "s16_a2a_protocol",
+    "s19_mcp_plugin": "s17_mcp_integration",
+  };
+  for (const [old, rep] of Object.entries(PROJECT_RENAMES)) {
+    next = next.replaceAll(old, rep);
+  }
+
   return next;
 }
 
