@@ -384,7 +384,7 @@ function rewriteChapterMarkdown(
   );
 
   next = next.replace(
-    /^\[中文\]\(README\.md\)\s*·\s*\[English\]\(README\.en\.md\)\s*(?:·\s*\[日本語\]\(README\.ja\.md\))?\n\n?/m,
+    /^\[中文\]\(README\.md\)\s*·\s*\[English\]\(README\.en\.md\)\s*(?:·\s*\[日本語\]\(README\.ja\.md\))?\r?\n\r?\n?/m,
     ""
   );
 
