@@ -193,8 +193,4 @@ graph LR
     style T fill:#e8f5e9
 ```
 
-## Sister Projects
 
-- [Kode Agent CLI](https://github.com/shareAI-lab/kode-agent-cli) -- A production coding agent CLI
-- [Kode Agent SDK](https://github.com/shareAI-lab/kode-agent-sdk) -- Agent SDK for building custom agents
-- [OpenClaw](https://github.com/shareAI-lab/claw0) -- Open-source AI agent framework

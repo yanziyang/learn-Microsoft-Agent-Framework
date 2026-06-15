@@ -1,0 +1,798 @@
+{
+  "versions": [
+    {
+      "id": "s01",
+      "filename": "s01_provider_agnostic/Program.cs",
+      "title": "Provider-Agnostic Client",
+      "subtitle": "One Interface, Any Provider",
+      "loc": 36,
+      "tools": [],
+      "newTools": [],
+      "coreAddition": "IChatClient abstraction",
+      "keyInsight": "MEAI's IChatClient lets you swap LLM providers by changing config, not code.",
+      "classes": [],
+      "functions": [],
+      "layer": "tools",
+      "source": "using Microsoft.Extensions.AI;\nusing Microsoft.Extensions.Configuration;\nusing OpenAI;\nusing OpenAI.Chat;\n\nConsole.OutputEncoding = System.Text.Encoding.UTF8;\n\n// ── Config ──\nvar config = new ConfigurationBuilder()\n    .AddJsonFile(\"appsettings.json\", optional: true)\n    .AddEnvironmentVariables()\n    .Build();\n\nvar baseUrl = config[\"baseUrl\"] ?? \"https://api.openai.com/v1\"; // Replace with your provider's endpoint\nvar apiKey = config[\"apiKey\"] ?? Environment.GetEnvironmentVariable(\"OPENAI_API_KEY\") ?? throw new Exception(\"No API key found. Set apiKey in appsettings.json or OPENAI_API_KEY env var.\");\nvar modelId = config[\"modelId\"] ?? \"gpt-4o-mini\";\n\n// ── Create IChatClient (provider-agnostic) ──\n// IChatClient is the core abstraction of Microsoft.Extensions.AI.\n// Any provider that implements it can be swapped in without changing consumer code.\nIChatClient chatClient = new ChatClient(modelId, new System.ClientModel.ApiKeyCredential(apiKey),\n    new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })\n    .AsIChatClient();\n\n// ── Non-streaming call ──\nConsole.WriteLine(\"═══ Non-Streaming ═══\");\nvar response = await chatClient.GetResponseAsync(\"What is .NET? Answer in one sentence.\");\nConsole.WriteLine(response.Text);\n\n// ── Streaming call ──\nConsole.WriteLine(\"\\n═══ Streaming ═══\");\nawait foreach (var update in chatClient.GetStreamingResponseAsync(\"Name three benefits of C#.\"))\n{\n    Console.Write(update);\n}\nConsole.WriteLine();\n\n// ── Middleware pipeline ──\n// ChatClientBuilder lets you wrap the base client with middleware layers.\n// Each layer can inspect/modify requests and responses.\n// The pipeline executes outside-in on requests, inside-out on responses.\n//\n//   Request  → [Logging] → [Timing] → [OpenAI Client]\n//   Response ← [Logging] ← [Timing] ← [OpenAI Client]\nvar pipelineClient = chatClient\n    .AsBuilder()\n    .Use(async (messages, options, next, cancellationToken) =>\n    {\n        Console.Write(\"[middleware] → \");\n        await next(messages, options, cancellationToken);\n        Console.Write(\" ← [middleware]\");\n    })\n    .Build();\n\nConsole.WriteLine(\"\\n═══ Through Pipeline ═══\");\nvar pipedResponse = await pipelineClient.GetResponseAsync(\"Say hello in one word.\");\nConsole.WriteLine($\"\\n{pipedResponse.Text}\");\n\n// ── Provider switch (conceptual) ──\n// To switch providers, just change the IChatClient construction above.\n// Examples:\n//   Ollama:    new OllamaApiClient(\"http://localhost:11434\", \"llama3\").AsIChatClient()\n//   Anthropic: new AnthropicClient(apiKey).Messages.AsIChatClient()\n//   Azure:     new AzureOpenAIClient(endpoint, credential).GetChatClient(model).AsIChatClient()\n// All return IChatClient — your code downstream never changes.\n",
+      "images": []
+    },
+    {
+      "id": "s02",
+      "filename": "s02_middleware_pipeline/Program.cs",
+      "title": "Middleware Pipeline",
+      "subtitle": "Stack Behavior Like Onion Layers",
+      "loc": 83,
+      "tools": [],
+      "newTools": [],
+      "coreAddition": "DelegatingChatClient chain",
+      "keyInsight": "Middleware composes cross-cutting concerns (logging, caching, telemetry) around the chat client.",
+      "classes": [
+        {
+          "name": "TimingChatClient",
+          "startLine": 63,
+          "endLine": 93
+        },
+        {
+          "name": "LoggingChatClient",
+          "startLine": 94,
+          "endLine": 121
+        }
+      ],
+      "functions": [
+        {
+          "name": "GetResponseAsync",
+          "signature": "public override async Task<ChatResponse> GetResponseAsync( IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)",
+          "startLine": 65
+        },
+        {
+          "name": "GetStreamingResponseAsync",
+          "signature": "public override async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync( IEnumerable<ChatMessage> messages, ChatOptions? options = null, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)",
+          "startLine": 77
+        },
+        {
+          "name": "GetResponseAsync",
+          "signature": "public override async Task<ChatResponse> GetResponseAsync( IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)",
+          "startLine": 96
+        },
+        {
+          "name": "GetStreamingResponseAsync",
+          "signature": "public override async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync( IEnumerable<ChatMessage> messages, ChatOptions? options = null, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)",
+          "startLine": 108
+        }
+      ],
+      "layer": "tools",
+      "source": "using System.Diagnostics;\nusing Microsoft.Extensions.AI;\nusing Microsoft.Extensions.Configuration;\nusing OpenAI;\n\nConsole.OutputEncoding = System.Text.Encoding.UTF8;\n\n// ── Config ──\nvar config = new ConfigurationBuilder()\n    .AddJsonFile(\"appsettings.json\", optional: true)\n    .AddEnvironmentVariables()\n    .Build();\n\nvar baseUrl = config[\"baseUrl\"] ?? \"https://api.openai.com/v1\"; // Replace with your provider's endpoint\nvar apiKey = config[\"apiKey\"] ?? Environment.GetEnvironmentVariable(\"OPENAI_API_KEY\") ?? throw new Exception(\"No API key found. Set apiKey in appsettings.json or OPENAI_API_KEY env var.\");\nvar modelId = config[\"modelId\"] ?? \"gpt-4o-mini\";\n\n// ── Base IChatClient ──\nIChatClient innerClient = new OpenAI.Chat.ChatClient(modelId, new System.ClientModel.ApiKeyCredential(apiKey),\n    new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })\n    .AsIChatClient();\n\n// ── Build the pipeline ──\n// Pipeline order (outermost → innermost):\n//   Request  → Timing → Logging → OpenAI Client\n//   Response ← Timing ← Logging ← OpenAI Client\n//\n// Each Use() wraps the inner client with a DelegatingChatClient subclass.\n// Timing measures total round-trip including logging overhead.\nvar client = innerClient\n    .AsBuilder()\n    .Use(inner => new TimingChatClient(inner))\n    .Use(inner => new LoggingChatClient(inner))\n    .Build();\n\n// ── Test: Non-streaming ──\nConsole.WriteLine(\"═══ Non-Streaming ═══\");\nvar response = await client.GetResponseAsync(\"What is dependency injection? One sentence.\");\nConsole.WriteLine($\"  Answer: {response.Text}\\n\");\n\n// ── Test: Streaming ──\nConsole.WriteLine(\"═══ Streaming ═══\");\nConsole.Write(\"  Answer: \");\nawait foreach (var update in client.GetStreamingResponseAsync(\"Name two design patterns in C#.\"))\n{\n    Console.Write(update);\n}\nConsole.WriteLine(\"\\n\");\n\n// ── Pipeline composition notes ──\n// The decorator pattern means each middleware wraps the one below it.\n// To add OpenTelemetry, insert .UseOpenTelemetry() at any position:\n//   .Use(inner => new TimingChatClient(inner))\n//   .UseOpenTelemetry()    ← built-in MEAI extension\n//   .Use(inner => new LoggingChatClient(inner))\n// Middleware order matters: put cross-cutting concerns (logging, tracing)\n// on the outside, business logic middleware closer to the client.\n\n// ── Custom middleware: TimingChatClient ──\n// DelegatingChatClient is the base class for middleware.\n// Override GetResponseAsync / GetStreamingResponseAsync to wrap behavior.\n// Call base.* to pass through to the next layer in the pipeline.\nclass TimingChatClient(IChatClient innerClient) : DelegatingChatClient(innerClient)\n{\n    public override async Task<ChatResponse> GetResponseAsync(\n        IEnumerable<ChatMessage> messages,\n        ChatOptions? options = null,\n        CancellationToken cancellationToken = default)\n    {\n        var sw = Stopwatch.StartNew();\n        var response = await base.GetResponseAsync(messages, options, cancellationToken);\n        sw.Stop();\n        Console.WriteLine($\"  [timing] Non-streaming took {sw.ElapsedMilliseconds}ms\");\n        return response;\n    }\n\n    public override async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(\n        IEnumerable<ChatMessage> messages,\n        ChatOptions? options = null,\n        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)\n    {\n        var sw = Stopwatch.StartNew();\n        await foreach (var update in base.GetStreamingResponseAsync(messages, options, cancellationToken))\n        {\n            yield return update;\n        }\n        sw.Stop();\n        Console.WriteLine($\"\\n  [timing] Streaming took {sw.ElapsedMilliseconds}ms\");\n    }\n}\n\n// ── Custom middleware: LoggingChatClient ──\n// Logs the user's question before forwarding, and the response length after.\nclass LoggingChatClient(IChatClient innerClient) : DelegatingChatClient(innerClient)\n{\n    public override async Task<ChatResponse> GetResponseAsync(\n        IEnumerable<ChatMessage> messages,\n        ChatOptions? options = null,\n        CancellationToken cancellationToken = default)\n    {\n        var lastUserMsg = messages.LastOrDefault(m => m.Role == ChatRole.User)?.Text ?? \"(no user message)\";\n        Console.WriteLine($\"  [logging] Question: {lastUserMsg[..Math.Min(50, lastUserMsg.Length)]}...\");\n        var response = await base.GetResponseAsync(messages, options, cancellationToken);\n        Console.WriteLine($\"  [logging] Response length: {response.Text?.Length ?? 0} chars\");\n        return response;\n    }\n\n    public override async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(\n        IEnumerable<ChatMessage> messages,\n        ChatOptions? options = null,\n        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)\n    {\n        var lastUserMsg = messages.LastOrDefault(m => m.Role == ChatRole.User)?.Text ?? \"(no user message)\";\n        Console.WriteLine($\"  [logging] Question: {lastUserMsg[..Math.Min(50, lastUserMsg.Length)]}...\");\n        await foreach (var update in base.GetStreamingResponseAsync(messages, options, cancellationToken))\n        {\n            yield return update;\n        }\n    }\n}\n",
+      "images": []
+    },
+    {
+      "id": "s03",
+      "filename": "s03_agent_loop/Program.cs",
+      "title": "Agent Loop",
+      "subtitle": "One Agent = One ChatClientAgent",
+      "loc": 42,
+      "tools": [],
+      "newTools": [],
+      "coreAddition": "MAF ChatClientAgent",
+      "keyInsight": "MAF's ChatClientAgent wraps IChatClient into a full agent with sessions and streaming.",
+      "classes": [],
+      "functions": [],
+      "layer": "tools",
+      "source": "using Microsoft.Extensions.AI;\nusing Microsoft.Extensions.Configuration;\nusing Microsoft.Agents.AI;\nusing OpenAI;\nusing OpenAI.Chat;\n\nConsole.OutputEncoding = System.Text.Encoding.UTF8;\n\n// ── Config ──\nvar config = new ConfigurationBuilder()\n    .AddJsonFile(\"appsettings.json\", optional: true)\n    .AddEnvironmentVariables()\n    .Build();\n\nvar baseUrl = config[\"baseUrl\"] ?? \"https://api.openai.com/v1\"; // Replace with your provider's endpoint\nvar apiKey = config[\"apiKey\"] ?? Environment.GetEnvironmentVariable(\"OPENAI_API_KEY\") ?? throw new Exception(\"No API key found. Set apiKey in appsettings.json or OPENAI_API_KEY env var.\");\nvar modelId = config[\"modelId\"] ?? \"gpt-4o-mini\";\n\n// ── Create IChatClient → AIAgent ──\n// ChatClientAgent wraps an IChatClient with agent capabilities:\n//   - System instructions (persona, rules)\n//   - Session-based conversation state\n//   - Managed message history per session\nIChatClient chatClient = new ChatClient(modelId, new System.ClientModel.ApiKeyCredential(apiKey),\n    new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })\n    .AsIChatClient();\n\nAIAgent agent = chatClient.AsAIAgent(\n    instructions: \"You are a concise, helpful assistant. Answer in 1-2 sentences.\",\n    name: \"TutorialAgent\");\n\n// ── Non-streaming run (single turn) ──\nConsole.WriteLine(\"═══ Single Turn ═══\");\nvar result = await agent.RunAsync(\"What is the capital of France?\");\nConsole.WriteLine(result);\n\n// ── Multi-turn conversation with AgentSession ──\n// AgentSession preserves conversation history across multiple RunAsync calls.\n// The framework feeds the full history back to the model each turn.\nConsole.WriteLine(\"\\n═══ Multi-Turn Conversation ═══\");\nAgentSession session = await agent.CreateSessionAsync();\n\nvar r1 = await agent.RunAsync(\"My name is Alice.\", session);\nConsole.WriteLine($\"Agent: {r1}\");\n\nvar r2 = await agent.RunAsync(\"What is my name?\", session);\nConsole.WriteLine($\"Agent: {r2}\");\n\n// ── Streaming with a new session ──\n// RunStreamingAsync returns IAsyncEnumerable<ChatResponseUpdate>.\n// Each update is a token/chunk of the response.\nConsole.WriteLine(\"\\n═══ Streaming ═══\");\nAgentSession streamSession = await agent.CreateSessionAsync();\n\nConsole.Write(\"Agent: \");\nawait foreach (var update in agent.RunStreamingAsync(\"Tell me a fun fact about C#.\", streamSession))\n{\n    Console.Write(update);\n}\nConsole.WriteLine();\n\nConsole.Write(\"Agent: \");\nawait foreach (var update in agent.RunStreamingAsync(\"Why is that interesting?\", streamSession))\n{\n    Console.Write(update);\n}\nConsole.WriteLine();\n\n// ── REPL (interactive) ──\n// Uncomment to run an interactive chat loop:\n//\n// Console.WriteLine(\"\\n═══ Interactive (type 'q' to quit) ═══\");\n// var replSession = await agent.CreateSessionAsync();\n// while (true)\n// {\n//     Console.Write(\"You: \");\n//     var input = Console.ReadLine();\n//     if (input is null or \"q\") break;\n//     Console.Write(\"Agent: \");\n//     await foreach (var update in agent.RunStreamingAsync(input, replSession))\n//         Console.Write(update);\n//     Console.WriteLine();\n// }\n",
+      "images": [
+        {
+          "src": "/course-assets/s03_agent_loop/agent-loop.svg",
+          "alt": "agent loop"
+        }
+      ]
+    },
+    {
+      "id": "s04",
+      "filename": "s04_tool_use/Program.cs",
+      "title": "Tool Use",
+      "subtitle": "Functions Become Tools Automatically",
+      "loc": 58,
+      "tools": [],
+      "newTools": [],
+      "coreAddition": "AIFunctionFactory dispatch",
+      "keyInsight": "AIFunctionFactory.Create() generates JSON schemas from C# method signatures automatically.",
+      "classes": [],
+      "functions": [
+        {
+          "name": "GetCurrentTime",
+          "signature": "static string GetCurrentTime()",
+          "startLine": 33
+        }
+      ],
+      "layer": "tools",
+      "source": "using System.ClientModel;\nusing System.ComponentModel;\nusing Microsoft.Agents.AI;\nusing Microsoft.Extensions.AI;\nusing Microsoft.Extensions.Configuration;\nusing OpenAI;\n\nConsole.OutputEncoding = System.Text.Encoding.UTF8;\n\n// --- Configuration ---\nvar config = new ConfigurationBuilder()\n    .AddJsonFile(\"appsettings.json\", optional: true)\n    .AddEnvironmentVariables()\n    .Build();\nvar baseUrl = config[\"baseUrl\"] ?? \"https://api.openai.com/v1\";\nvar apiKey = config[\"apiKey\"] ?? Environment.GetEnvironmentVariable(\"OPENAI_API_KEY\") ?? throw new Exception(\"No API key. Set OPENAI_API_KEY or configure appsettings.json\");\nvar modelId = config[\"modelId\"] ?? \"gpt-4o-mini\";\n\n// --- IChatClient with tool support ---\nvar client = new OpenAIClient(new ApiKeyCredential(apiKey), new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })\n    .GetChatClient(modelId).AsIChatClient();\n\n// --- Tool definitions ---\n[Description(\"Get the current weather for a location\")]\nstatic string GetWeather([Description(\"City name\")] string city) =>\n    city.ToLower() switch {\n        \"london\" => \"London: 15°C, cloudy\",\n        \"tokyo\" => \"Tokyo: 28°C, sunny\",\n        _ => $\"{city}: 22°C, partly cloudy\"\n    };\n\n[Description(\"Get the current date and time\")]\nstatic string GetCurrentTime() => DateTime.Now.ToString(\"yyyy-MM-dd HH:mm:ss\");\n\n[Description(\"Calculate a mathematical expression\")]\nstatic double Calculate(\n    [Description(\"First operand\")] double a,\n    [Description(\"The operation: add, subtract, multiply, divide\")] string operation,\n    [Description(\"Second operand\")] double b) =>\n    operation.ToLower() switch {\n        \"add\" => a + b, \"subtract\" => a - b, \"multiply\" => a * b, \"divide\" => a / b,\n        _ => throw new ArgumentException($\"Unknown operation: {operation}\")\n    };\n\n// --- Register tools via AIFunctionFactory ---\nvar tools = new List<AITool>\n{\n    AIFunctionFactory.Create(GetWeather),\n    AIFunctionFactory.Create(GetCurrentTime),\n    AIFunctionFactory.Create(Calculate),\n};\n\n// --- Build pipeline: FunctionInvokingChatClient wraps the raw client ---\nvar chatClient = new FunctionInvokingChatClient(client);\n\n// --- Agent setup ---\nvar agent = new ChatClientAgent(chatClient,\n    instructions: \"You are a helpful assistant. Use tools to answer questions about weather, time, and math.\",\n    name: \"assistant\",\n    description: \"A helpful assistant\",\n    tools: tools);\n\n// --- Run queries that trigger tool use ---\nvar queries = new[]\n{\n    \"What's the weather in Tokyo and London?\",\n    \"What time is it now?\",\n    \"Calculate 42 * 17 + 3\",\n};\n\nforeach (var query in queries)\n{\n    Console.WriteLine($\"\\n>>> User: {query}\");\n    var response = await agent.RunAsync(query);\n    Console.WriteLine($\"<<< Agent: {response.Text}\");\n}\n",
+      "images": [
+        {
+          "src": "/course-assets/s04_tool_use/concurrency-comparison.svg",
+          "alt": "concurrency comparison"
+        },
+        {
+          "src": "/course-assets/s04_tool_use/tool-dispatch.svg",
+          "alt": "tool dispatch"
+        }
+      ]
+    },
+    {
+      "id": "s05",
+      "filename": "s05_permission/Program.cs",
+      "title": "Permission",
+      "subtitle": "Ask Before You Act",
+      "loc": 65,
+      "tools": [],
+      "newTools": [],
+      "coreAddition": "ApprovalRequiredAIFunction",
+      "keyInsight": "Wrap any tool with ApprovalRequiredAIFunction to gate dangerous operations through human approval.",
+      "classes": [],
+      "functions": [],
+      "layer": "tools",
+      "source": "using System.ClientModel;\nusing System.ComponentModel;\nusing Microsoft.Agents.AI;\nusing Microsoft.Extensions.AI;\nusing Microsoft.Extensions.Configuration;\nusing OpenAI;\n\nConsole.OutputEncoding = System.Text.Encoding.UTF8;\n\n// --- Configuration ---\nvar config = new ConfigurationBuilder()\n    .AddJsonFile(\"appsettings.json\", optional: true)\n    .AddEnvironmentVariables()\n    .Build();\nvar baseUrl = config[\"baseUrl\"] ?? \"https://api.openai.com/v1\";\nvar apiKey = config[\"apiKey\"] ?? Environment.GetEnvironmentVariable(\"OPENAI_API_KEY\") ?? throw new Exception(\"No API key. Set OPENAI_API_KEY or configure appsettings.json\");\nvar modelId = config[\"modelId\"] ?? \"gpt-4o-mini\";\n\n// --- IChatClient ---\nvar client = new OpenAIClient(new ApiKeyCredential(apiKey), new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })\n    .GetChatClient(modelId).AsIChatClient();\n\n// --- Dangerous tool definition ---\n[Description(\"Delete a file from the filesystem\")]\nstatic string DeleteFile([Description(\"Path to the file to delete\")] string path) =>\n    $\"File '{path}' has been deleted successfully.\";\n\n// --- Wrap with approval requirement ---\nvar dangerousTool = new ApprovalRequiredAIFunction(AIFunctionFactory.Create(DeleteFile));\n\n// --- Build pipeline with function invocation ---\nvar chatClient = new FunctionInvokingChatClient(client);\n\n// --- Agent setup ---\nvar agent = new ChatClientAgent(chatClient,\n    instructions: \"You are a file management assistant. You can delete files when asked.\",\n    name: \"file-manager\",\n    description: \"A file management assistant\",\n    tools: [dangerousTool]);\n\n// --- Interactive approval loop ---\nConsole.WriteLine(\"s05: Permission — tool approval with ApprovalRequiredAIFunction\");\nConsole.WriteLine(\"The agent will ask for permission before deleting files.\\n\");\n\nvar query = \"Please delete the file 'temp.txt' and then delete 'old_data.csv'\";\nConsole.WriteLine($\">>> User: {query}\\n\");\n\nvar messages = new List<ChatMessage> { new(ChatRole.User, query) };\nvar options = new ChatOptions { Tools = [dangerousTool] };\n\nwhile (true)\n{\n    var response = await chatClient.GetResponseAsync(messages, options);\n    messages.AddMessages(response);\n\n    // Check for approval requests\n    var approvalRequests = response.Messages\n        .SelectMany(m => m.Contents)\n        .OfType<FunctionCallContent>()\n        .Where(fc => dangerousTool.Name.Equals(fc.Name, StringComparison.OrdinalIgnoreCase))\n        .ToList();\n\n    if (approvalRequests.Count == 0)\n    {\n        // No more approval requests — show final response\n        Console.WriteLine($\"<<< Agent: {response.Text}\");\n        break;\n    }\n\n    // Process each approval request\n    foreach (var request in approvalRequests)\n    {\n        var filePath = request.Arguments?[\"path\"]?.ToString() ?? \"unknown\";\n        Console.Write($\"[APPROVAL] Allow deletion of '{filePath}'? (y/n): \");\n        var answer = Console.ReadLine()?.Trim().ToLower();\n\n        if (answer is \"y\" or \"yes\")\n        {\n            // Execute the tool and return result\n            var result = DeleteFile(filePath);\n            Console.WriteLine($\"[APPROVED] {result}\");\n            messages.Add(new ChatMessage(ChatRole.Tool, result));\n        }\n        else\n        {\n            // Reject the tool call\n            var rejection = $\"Tool call '{request.Name}' for '{filePath}' was denied by the user.\";\n            Console.WriteLine($\"[REJECTED] {rejection}\");\n            messages.Add(new ChatMessage(ChatRole.Tool, rejection));\n        }\n    }\n}\n",
+      "images": [
+        {
+          "src": "/course-assets/s05_permission/permission-overview.svg",
+          "alt": "permission overview"
+        },
+        {
+          "src": "/course-assets/s05_permission/permission-pipeline.svg",
+          "alt": "permission pipeline"
+        }
+      ]
+    },
+    {
+      "id": "s06",
+      "filename": "s06_hooks/Program.cs",
+      "title": "Hooks",
+      "subtitle": "Middleware Is the New Hook Bus",
+      "loc": 89,
+      "tools": [],
+      "newTools": [],
+      "coreAddition": "Pre/post tool middleware",
+      "keyInsight": "DelegatingChatClient middleware replaces hook buses with composable, testable decorators.",
+      "classes": [
+        {
+          "name": "AuditMiddleware",
+          "startLine": 77,
+          "endLine": 113
+        }
+      ],
+      "functions": [
+        {
+          "name": "GetResponseAsync",
+          "signature": "public override async Task<ChatResponse> GetResponseAsync( IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken ct = default)",
+          "startLine": 82
+        }
+      ],
+      "layer": "tools",
+      "source": "using System.ClientModel;\nusing System.ComponentModel;\nusing Microsoft.Agents.AI;\nusing Microsoft.Extensions.AI;\nusing Microsoft.Extensions.Configuration;\nusing OpenAI;\n\nConsole.OutputEncoding = System.Text.Encoding.UTF8;\n\n// --- Configuration ---\nvar config = new ConfigurationBuilder()\n    .AddJsonFile(\"appsettings.json\", optional: true)\n    .AddEnvironmentVariables()\n    .Build();\nvar baseUrl = config[\"baseUrl\"] ?? \"https://api.openai.com/v1\";\nvar apiKey = config[\"apiKey\"] ?? Environment.GetEnvironmentVariable(\"OPENAI_API_KEY\") ?? throw new Exception(\"No API key. Set OPENAI_API_KEY or configure appsettings.json\");\nvar modelId = config[\"modelId\"] ?? \"gpt-4o-mini\";\n\n// --- IChatClient ---\nvar rawClient = new OpenAIClient(new ApiKeyCredential(apiKey), new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })\n    .GetChatClient(modelId).AsIChatClient();\n\n// --- Tool definitions ---\n[Description(\"Get the current weather for a location\")]\nstatic string GetWeather([Description(\"City name\")] string city) =>\n    city.ToLower() switch {\n        \"london\" => \"London: 15°C, cloudy\",\n        \"tokyo\" => \"Tokyo: 28°C, sunny\",\n        _ => $\"{city}: 22°C, partly cloudy\"\n    };\n\n[Description(\"Run a shell command\")]\nstatic string RunCommand([Description(\"The command to execute\")] string command)\n{\n    if (command.Contains(\"rm -rf\", StringComparison.OrdinalIgnoreCase))\n        return \"BLOCKED: dangerous command refused\";\n    return $\"Executed: {command}\";\n}\n\nvar tools = new List<AITool>\n{\n    AIFunctionFactory.Create(GetWeather),\n    AIFunctionFactory.Create(RunCommand),\n};\n\n// --- Build pipeline: audit → function invocation → raw client ---\nvar auditClient = new AuditMiddleware(new FunctionInvokingChatClient(rawClient));\n\n// --- Agent setup ---\nvar agent = new ChatClientAgent(auditClient,\n    instructions: \"You are a helpful assistant. Use tools when appropriate.\",\n    name: \"assistant\",\n    description: \"A helpful assistant\",\n    tools: tools);\n\n// --- Run queries ---\nvar queries = new[]\n{\n    \"What's the weather in London?\",\n    \"Run the command 'ls -la'\",\n    \"Run the command 'rm -rf /'\",\n};\n\nforeach (var query in queries)\n{\n    Console.WriteLine($\"\\n>>> User: {query}\");\n    var response = await agent.RunAsync(query);\n    Console.WriteLine($\"<<< Agent: {response.Text}\");\n}\n\n// --- Show audit log summary ---\nConsole.WriteLine(\"\\n--- Audit Log ---\");\nforeach (var entry in auditClient.AuditLog)\n    Console.WriteLine($\"  {entry}\");\n\n// --- Audit middleware via DelegatingChatClient ---\nsealed class AuditMiddleware(IChatClient inner) : DelegatingChatClient(inner)\n{\n    private readonly List<string> _auditLog = [];\n    public IReadOnlyList<string> AuditLog => _auditLog;\n\n    public override async Task<ChatResponse> GetResponseAsync(\n        IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken ct = default)\n    {\n        var msgList = messages.ToList();\n        Console.WriteLine($\"[HOOK] Pre-call: {msgList.Count} messages, {options?.Tools?.Count ?? 0} tools registered\");\n\n        var response = await base.GetResponseAsync(messages, options, ct);\n\n        foreach (var content in response.Messages.SelectMany(m => m.Contents))\n        {\n            if (content is FunctionCallContent fcc)\n            {\n                var args = fcc.Arguments is not null\n                    ? string.Join(\", \", fcc.Arguments.Select(kv => $\"{kv.Key}={kv.Value}\"))\n                    : \"none\";\n                var entry = $\"Tool called: {fcc.Name}({args})\";\n                Console.WriteLine($\"[HOOK] {entry}\");\n                _auditLog.Add(entry);\n            }\n            if (content is FunctionResultContent frc)\n            {\n                var resultText = frc.Result?.ToString() ?? \"(null)\";\n                if (resultText.Length > 100) resultText = resultText[..100] + \"...\";\n                var entry = $\"Tool result: {resultText}\";\n                Console.WriteLine($\"[HOOK] {entry}\");\n                _auditLog.Add(entry);\n            }\n        }\n        return response;\n    }\n}\n",
+      "images": [
+        {
+          "src": "/course-assets/s06_hooks/hooks-overview.svg",
+          "alt": "hooks overview"
+        }
+      ]
+    },
+    {
+      "id": "s07",
+      "filename": "s07_planning/Program.cs",
+      "title": "Planning",
+      "subtitle": "An Agent Without a Plan Drifts",
+      "loc": 54,
+      "tools": [],
+      "newTools": [],
+      "coreAddition": "TodoWrite custom tool",
+      "keyInsight": "Explicit plans via AIFunction tools keep long-running work visible and correctable.",
+      "classes": [
+        {
+          "name": "TodoItem",
+          "startLine": 68,
+          "endLine": 73
+        }
+      ],
+      "functions": [],
+      "layer": "planning",
+      "source": "using System.ClientModel;\nusing System.ComponentModel;\nusing System.Text.Json;\nusing Microsoft.Agents.AI;\nusing Microsoft.Extensions.AI;\nusing Microsoft.Extensions.Configuration;\nusing OpenAI;\n\nConsole.OutputEncoding = System.Text.Encoding.UTF8;\n\n// ── Config ──\nvar config = new ConfigurationBuilder()\n    .AddJsonFile(\"appsettings.json\", optional: true)\n    .AddEnvironmentVariables()\n    .Build();\nvar baseUrl = config[\"baseUrl\"] ?? \"https://api.openai.com/v1\";\nvar apiKey = config[\"apiKey\"] ?? Environment.GetEnvironmentVariable(\"OPENAI_API_KEY\") ?? throw new Exception(\"No API key. Set OPENAI_API_KEY or configure appsettings.json\");\nvar modelId = config[\"modelId\"] ?? \"gpt-4o-mini\";\n\nvar chatClient = new OpenAIClient(new ApiKeyCredential(apiKey), new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })\n    .GetChatClient(modelId).AsIChatClient();\n\n// ── Todo State ──\nvar todoItems = new List<TodoItem>();\n\n// ── Todo Tool ──\n[Description(\"Update the todo list. Provide a JSON array of items with content and status (pending, in_progress, completed).\")]\nstring todo_write(\n    [Description(\"JSON array of objects: [{\\\"content\\\": \\\"...\\\", \\\"status\\\": \\\"pending|in_progress|completed\\\"}]\")] string items)\n{\n    var parsed = JsonSerializer.Deserialize<List<TodoItem>>(items, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });\n    if (parsed is null || parsed.Count == 0) return \"No items provided.\";\n\n    // Merge by content: update existing, add new\n    foreach (var item in parsed)\n    {\n        var existing = todoItems.FirstOrDefault(t => t.Content == item.Content);\n        if (existing is not null)\n            existing.Status = item.Status;\n        else\n            todoItems.Add(item);\n    }\n    return $\"Todo list updated ({todoItems.Count} items). Current state:\\n\" +\n           string.Join(\"\\n\", todoItems.Select(t => $\"  [{t.Status}] {t.Content}\"));\n}\n\nvar tools = new List<AITool> { AIFunctionFactory.Create(todo_write) };\n\n// ── Agent ──\nvar agent = new ChatClientAgent(\n    new FunctionInvokingChatClient(chatClient),\n    instructions: \"You are a planning agent. When given a task, break it down into steps using the todo_write tool. \" +\n                  \"Mark items as in_progress when working on them, completed when done. Always plan before acting.\",\n    name: \"planner\",\n    description: \"An agent that plans tasks using a todo list\",\n    tools: tools);\n\n// ── Run ──\nConsole.WriteLine(\"s07: Planning via TodoWrite — break tasks into tracked steps\\n\");\nvar response = await agent.RunAsync(\"Plan the steps to build a simple REST API with a health endpoint and a users CRUD endpoint. Use todo_write to track your plan.\");\nConsole.WriteLine($\"Agent: {response.Text}\");\n\nConsole.WriteLine(\"\\n── Final Todo State ──\");\nforeach (var item in todoItems)\n    Console.WriteLine($\"  [{item.Status}] {item.Content}\");\n\n// ── Model ──\nrecord TodoItem\n{\n    public string Content { get; set; } = \"\";\n    public string Status { get; set; } = \"pending\";\n}\n",
+      "images": [
+        {
+          "src": "/course-assets/s07_planning/todo-overview.svg",
+          "alt": "todo overview"
+        }
+      ]
+    },
+    {
+      "id": "s08",
+      "filename": "s08_agent_as_tool/Program.cs",
+      "title": "Agent-as-Tool",
+      "subtitle": "Agents Compose Like Functions",
+      "loc": 38,
+      "tools": [],
+      "newTools": [],
+      "coreAddition": "AIAgent.AsAIFunction()",
+      "keyInsight": "Any agent can become a tool for another agent, enabling hierarchical composition.",
+      "classes": [],
+      "functions": [],
+      "layer": "planning",
+      "source": "using System.ClientModel;\nusing Microsoft.Agents.AI;\nusing Microsoft.Extensions.AI;\nusing Microsoft.Extensions.Configuration;\nusing OpenAI;\n\nConsole.OutputEncoding = System.Text.Encoding.UTF8;\n\n// ── Config ──\nvar config = new ConfigurationBuilder()\n    .AddJsonFile(\"appsettings.json\", optional: true)\n    .AddEnvironmentVariables()\n    .Build();\nvar baseUrl = config[\"baseUrl\"] ?? \"https://api.openai.com/v1\";\nvar apiKey = config[\"apiKey\"] ?? Environment.GetEnvironmentVariable(\"OPENAI_API_KEY\") ?? throw new Exception(\"No API key. Set OPENAI_API_KEY or configure appsettings.json\");\nvar modelId = config[\"modelId\"] ?? \"gpt-4o-mini\";\n\nvar chatClient = new OpenAIClient(new ApiKeyCredential(apiKey), new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })\n    .GetChatClient(modelId).AsIChatClient();\n\n// ── Specialist Agents ──\nAIAgent researcher = chatClient.AsAIAgent(\n    instructions: \"You are a research specialist. Given a topic, provide key facts, recent developments, and important context. Be thorough but concise.\",\n    name: \"researcher\",\n    description: \"Researches topics and gathers information\");\n\nAIAgent writer = chatClient.AsAIAgent(\n    instructions: \"You are a writing specialist. Given research notes, compose a clear, engaging summary suitable for a general audience.\",\n    name: \"writer\",\n    description: \"Writes summaries from research notes\");\n\n// ── Convert agents to tools ──\nvar tools = new List<AITool>\n{\n    researcher.AsAIFunction(),\n    writer.AsAIFunction(),\n};\n\n// ── Coordinator Agent ──\nvar coordinator = new ChatClientAgent(chatClient,\n    instructions: \"You are a coordinator that delegates to specialist agents. \" +\n                  \"Use the researcher tool to gather information, then use the writer tool to compose a summary. \" +\n                  \"Always use both tools in sequence: research first, then write.\",\n    name: \"coordinator\",\n    description: \"Coordinates research and writing tasks\",\n    tools: tools);\n\n// ── Run ──\nConsole.WriteLine(\"s08: Agent as Tool — specialist agents composed under a coordinator\\n\");\nvar response = await coordinator.RunAsync(\"Research the current state of quantum computing in 2025 and write a short summary about it.\");\nConsole.WriteLine(response.Text);\n",
+      "images": [
+        {
+          "src": "/course-assets/s08_agent_as_tool/subagent-overview.svg",
+          "alt": "subagent overview"
+        }
+      ]
+    },
+    {
+      "id": "s09",
+      "filename": "s09_skill_loading/Program.cs",
+      "title": "Skill Loading",
+      "subtitle": "Load Knowledge on Demand",
+      "loc": 67,
+      "tools": [],
+      "newTools": [],
+      "coreAddition": "Two-level skill injection",
+      "keyInsight": "Inject skill names in the system prompt; load full content only when the model requests it.",
+      "classes": [
+        {
+          "name": "SkillEntry",
+          "startLine": 86,
+          "endLine": 87
+        }
+      ],
+      "functions": [],
+      "layer": "planning",
+      "source": "using System.ClientModel;\nusing System.Text.RegularExpressions;\nusing Microsoft.Agents.AI;\nusing Microsoft.Extensions.AI;\nusing Microsoft.Extensions.Configuration;\nusing OpenAI;\n\nConsole.OutputEncoding = System.Text.Encoding.UTF8;\n\n// ── Config ──\nvar config = new ConfigurationBuilder()\n    .AddJsonFile(\"appsettings.json\", optional: true)\n    .AddEnvironmentVariables()\n    .Build();\nvar baseUrl = config[\"baseUrl\"] ?? \"https://api.openai.com/v1\";\nvar apiKey = config[\"apiKey\"] ?? Environment.GetEnvironmentVariable(\"OPENAI_API_KEY\") ?? throw new Exception(\"No API key. Set OPENAI_API_KEY or configure appsettings.json\");\nvar modelId = config[\"modelId\"] ?? \"gpt-4o-mini\";\n\nvar chatClient = new OpenAIClient(new ApiKeyCredential(apiKey), new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })\n    .GetChatClient(modelId).AsIChatClient();\n\n// ── Skill Registry ──\nvar skillsDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, \"..\", \"..\", \"..\", \"..\", \"skills\"));\nvar skillEntries = new List<SkillEntry>();\n\nif (Directory.Exists(skillsDir))\n{\n    foreach (var dir in Directory.GetDirectories(skillsDir))\n    {\n        var skillFile = Path.Combine(dir, \"SKILL.md\");\n        if (!File.Exists(skillFile)) continue;\n\n        var lines = File.ReadAllLines(skillFile);\n        var (name, description) = ParseFrontmatter(lines);\n        if (name is not null)\n            skillEntries.Add(new SkillEntry(name, description ?? \"\", skillFile));\n    }\n}\n\nConsole.WriteLine($\"Loaded {skillEntries.Count} skills from {skillsDir}\");\nforeach (var s in skillEntries)\n    Console.WriteLine($\"  - {s.Name}: {s.Description[..Math.Min(60, s.Description.Length)]}...\");\n\n// ── Load Skill Tool ──\nvar load_skill = AIFunctionFactory.Create(\n    (string name) =>\n    {\n        var entry = skillEntries.FirstOrDefault(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase));\n        if (entry is null) return $\"Skill '{name}' not found. Available: {string.Join(\", \", skillEntries.Select(s => s.Name))}\";\n        return File.ReadAllText(entry.FilePath);\n    },\n    name: \"load_skill\",\n    description: \"Load the full content of a skill by name. Use when you need detailed instructions for a task.\");\n\nvar tools = new List<AITool> { load_skill };\n\n// ── Agent ──\nvar catalog = string.Join(\"\\n\", skillEntries.Select(s => $\"- {s.Name}: {s.Description}\"));\nvar agent = new ChatClientAgent(chatClient,\n    instructions: $\"You are a helpful assistant with access to skills.\\n\\nAvailable skills:\\n{catalog}\\n\\n\" +\n                  \"When a user's request matches a skill, call load_skill to get full instructions before responding.\",\n    name: \"skill-agent\",\n    description: \"An agent that loads skills on demand\",\n    tools: tools);\n\n// ── Run ──\nConsole.WriteLine(\"\\ns09: Skill Loading — catalog in prompt, full content on demand\\n\");\nvar response = await agent.RunAsync(\"I want to build an MCP server that provides a weather lookup tool. Guide me through it.\");\nConsole.WriteLine(response.Text);\n\n// ── Helpers ──\nstatic (string? name, string? description) ParseFrontmatter(string[] lines)\n{\n    if (lines.Length < 1 || lines[0].Trim() != \"---\") return (null, null);\n    var yaml = new System.Text.StringBuilder();\n    for (var i = 1; i < lines.Length; i++)\n    {\n        if (lines[i].Trim() == \"---\") break;\n        yaml.AppendLine(lines[i]);\n    }\n    var nameMatch = Regex.Match(yaml.ToString(), @\"^name:\\s*(.+)$\", RegexOptions.Multiline);\n    var descMatch = Regex.Match(yaml.ToString(), @\"^description:\\s*(.+)$\", RegexOptions.Multiline);\n    return (nameMatch.Groups[1].Value.Trim(), descMatch.Success ? descMatch.Groups[1].Value.Trim() : null);\n}\n\nrecord SkillEntry(string Name, string Description, string FilePath);\n",
+      "images": [
+        {
+          "src": "/course-assets/s09_skill_loading/skill-overview.svg",
+          "alt": "skill overview"
+        }
+      ]
+    },
+    {
+      "id": "s10",
+      "filename": "s10_context_compaction/Program.cs",
+      "title": "Context Compaction",
+      "subtitle": "Context Will Fill Up",
+      "loc": 40,
+      "tools": [],
+      "newTools": [],
+      "coreAddition": "MEAI chat reducers",
+      "keyInsight": "MessageCountingChatReducer and SummarizingChatReducer keep context windows manageable automatically.",
+      "classes": [],
+      "functions": [
+        {
+          "name": "GetCurrentTime",
+          "signature": "static string GetCurrentTime()",
+          "startLine": 40
+        }
+      ],
+      "layer": "memory",
+      "source": "using System.ClientModel;\nusing System.ComponentModel;\nusing Microsoft.Extensions.AI;\nusing Microsoft.Extensions.Configuration;\nusing OpenAI;\n\n#pragma warning disable MEAI001\n\nConsole.OutputEncoding = System.Text.Encoding.UTF8;\n\n// ── Config ──────────────────────────────────────────────\nvar config = new ConfigurationBuilder()\n    .AddJsonFile(\"appsettings.json\", optional: true)\n    .AddEnvironmentVariables()\n    .Build();\nvar baseUrl = config[\"baseUrl\"] ?? \"https://api.openai.com/v1\";\nvar apiKey = config[\"apiKey\"] ?? Environment.GetEnvironmentVariable(\"OPENAI_API_KEY\") ?? throw new Exception(\"No API key\");\nvar modelId = config[\"modelId\"] ?? \"gpt-4o-mini\";\n\nvar chatClient = new OpenAIClient(new ApiKeyCredential(apiKey), new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })\n    .GetChatClient(modelId).AsIChatClient();\n\n// ── MEAI Chat Reducers ──────────────────────────────────\nvar countingReducer = new MessageCountingChatReducer(50);\nConsole.WriteLine(\"[init] MessageCountingChatReducer: keeps last 50 messages\");\n\nvar summarizingReducer = new SummarizingChatReducer(chatClient, 20, 40);\nConsole.WriteLine(\"[init] SummarizingChatReducer: summarize when >40 msgs, target 20\");\n\n// ── Build pipeline ──────────────────────────────────────\nvar client = chatClient.AsBuilder()\n    .UseChatReducer(countingReducer)\n    .UseFunctionInvocation()\n    .Build();\n\nConsole.WriteLine(\"[init] Pipeline: Reducer(counting) → FunctionInvocation → LLM\");\n\n// ── Demo ────────────────────────────────────────────────\n[Description(\"Gets the current time in UTC\")]\nstatic string GetCurrentTime() => DateTime.UtcNow.ToString(\"yyyy-MM-dd HH:mm:ss UTC\");\n\nvar tools = new List<AITool> { AIFunctionFactory.Create(GetCurrentTime) };\nvar options = new ChatOptions { Tools = tools };\n\nConsole.WriteLine(\"\\n[chat] Sending 5 messages to demonstrate context window tracking...\");\nvar messages = new List<ChatMessage>();\n\nfor (int i = 1; i <= 5; i++)\n{\n    messages.Add(new ChatMessage(ChatRole.User, $\"Message {i}: What time is it?\"));\n    var response = await client.GetResponseAsync(messages, options);\n    messages.Add(new ChatMessage(ChatRole.Assistant, response.Text));\n    Console.WriteLine($\"  [{i}] {response.Text?.TrimEnd()}\");\n}\n\nConsole.WriteLine($\"\\n[info] Conversation has {messages.Count} messages\");\n\n// ── MAF Compaction Strategies ───────────────────────────\n// Microsoft.Agents.AI offers PipelineCompactionStrategy with:\n//   - ToolResultCompactionStrategy   — collapse verbose tool results\n//   - SummarizationCompactionStrategy — LLM summarize older spans\n//   - SlidingWindowCompactionStrategy — keep last N turns\n//   - TruncationCompactionStrategy   — emergency drop oldest\n\nConsole.WriteLine(\"\\n[done] Context compaction demo complete.\");\n",
+      "images": [
+        {
+          "src": "/course-assets/s10_context_compaction/auto-compact.svg",
+          "alt": "auto compact"
+        },
+        {
+          "src": "/course-assets/s10_context_compaction/compact-overview.svg",
+          "alt": "compact overview"
+        },
+        {
+          "src": "/course-assets/s10_context_compaction/compaction-layers.svg",
+          "alt": "compaction layers"
+        },
+        {
+          "src": "/course-assets/s10_context_compaction/layer1-budget.svg",
+          "alt": "layer1 budget"
+        },
+        {
+          "src": "/course-assets/s10_context_compaction/micro-compact.svg",
+          "alt": "micro compact"
+        }
+      ]
+    },
+    {
+      "id": "s11",
+      "filename": "s11_system_prompt/Program.cs",
+      "title": "System Prompt",
+      "subtitle": "Assembled at Runtime, Never Hardcoded",
+      "loc": 52,
+      "tools": [],
+      "newTools": [],
+      "coreAddition": "Dynamic prompt assembly",
+      "keyInsight": "The system prompt is a generated product of context, tools, and environment state.",
+      "classes": [],
+      "functions": [
+        {
+          "name": "BuildPrompt",
+          "signature": "string BuildPrompt()",
+          "startLine": 33
+        }
+      ],
+      "layer": "planning",
+      "source": "using System.ClientModel;\nusing Microsoft.Extensions.AI;\nusing Microsoft.Extensions.Configuration;\nusing OpenAI;\n\nConsole.OutputEncoding = System.Text.Encoding.UTF8;\n\n// ── Config ──────────────────────────────────────────────\nvar config = new ConfigurationBuilder()\n    .AddJsonFile(\"appsettings.json\", optional: true)\n    .AddEnvironmentVariables()\n    .Build();\nvar baseUrl = config[\"baseUrl\"] ?? \"https://api.openai.com/v1\";\nvar apiKey = config[\"apiKey\"] ?? Environment.GetEnvironmentVariable(\"OPENAI_API_KEY\") ?? throw new Exception(\"No API key\");\nvar modelId = config[\"modelId\"] ?? \"gpt-4o-mini\";\n\nvar chatClient = new OpenAIClient(new ApiKeyCredential(apiKey), new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })\n    .GetChatClient(modelId).AsIChatClient();\n\n// ── Prompt sections ─────────────────────────────────────\nvar sections = new Dictionary<string, string>\n{\n    [\"identity\"] = \"You are a helpful coding assistant.\",\n    [\"tools\"] = \"You have access to: bash, read_file, write_file, edit_file, glob.\",\n    [\"workspace\"] = $\"Working directory: {Directory.GetCurrentDirectory()}\",\n    [\"environment\"] = $\"OS: {Environment.OSVersion}, .NET: {Environment.Version}\",\n};\n\n// ── Deterministic caching ───────────────────────────────\nstring? cachedContext = null;\nstring? cachedPrompt = null;\n\nstring BuildPrompt()\n{\n    var ctx = $\"{Environment.OSVersion}|{Directory.GetCurrentDirectory()}\";\n    if (ctx == cachedContext && cachedPrompt is not null)\n    {\n        Console.WriteLine(\"  [cache hit] system prompt unchanged\");\n        return cachedPrompt;\n    }\n    cachedContext = ctx;\n    cachedPrompt = string.Join(\"\\n\\n\", sections.Values);\n    Console.WriteLine($\"  [assembled] sections: {string.Join(\", \", sections.Keys)}\");\n    return cachedPrompt;\n}\n\n// ── Use dynamic prompt ──────────────────────────────────\nvar systemPrompt = BuildPrompt();\nConsole.WriteLine(\"── System Prompt ──\");\nConsole.WriteLine(systemPrompt);\nConsole.WriteLine(\"───────────────────\\n\");\n\nvar messages = new List<ChatMessage>\n{\n    new(ChatRole.System, systemPrompt),\n    new(ChatRole.User, \"What tools do you have?\"),\n};\n\nConsole.WriteLine(\"[chat] Asking about available tools...\");\nvar response = await chatClient.GetResponseAsync(messages);\nConsole.WriteLine($\"[assistant] {response.Text}\");\n\nConsole.WriteLine();\nvar prompt2 = BuildPrompt();\nConsole.WriteLine($\"[info] Prompt length: {prompt2.Length} chars\");\n\nConsole.WriteLine(\"\\n[done] System prompt assembly demo complete.\");\n",
+      "images": [
+        {
+          "src": "/course-assets/s11_system_prompt/system-prompt-overview.svg",
+          "alt": "system prompt overview"
+        }
+      ]
+    },
+    {
+      "id": "s12",
+      "filename": "s12_error_recovery/Program.cs",
+      "title": "Error Recovery",
+      "subtitle": "Errors Are the Start of a Retry",
+      "loc": 73,
+      "tools": [],
+      "newTools": [],
+      "coreAddition": "Retry middleware",
+      "keyInsight": "DelegatingChatClient middleware handles retries with exponential backoff and fallback models.",
+      "classes": [
+        {
+          "name": "RetryMiddleware",
+          "startLine": 41,
+          "endLine": 91
+        }
+      ],
+      "functions": [
+        {
+          "name": "GetResponseAsync",
+          "signature": "public override async Task<ChatResponse> GetResponseAsync( IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken ct = default)",
+          "startLine": 47
+        },
+        {
+          "name": "IsTransient",
+          "signature": "static bool IsTransient(Exception ex)",
+          "startLine": 88
+        }
+      ],
+      "layer": "planning",
+      "source": "using System.ClientModel;\nusing Microsoft.Extensions.AI;\nusing Microsoft.Extensions.Configuration;\nusing OpenAI;\n\nConsole.OutputEncoding = System.Text.Encoding.UTF8;\n\n// ── Config ──────────────────────────────────────────────\nvar config = new ConfigurationBuilder()\n    .AddJsonFile(\"appsettings.json\", optional: true)\n    .AddEnvironmentVariables()\n    .Build();\nvar baseUrl = config[\"baseUrl\"] ?? \"https://api.openai.com/v1\";\nvar apiKey = config[\"apiKey\"] ?? Environment.GetEnvironmentVariable(\"OPENAI_API_KEY\") ?? throw new Exception(\"No API key\");\nvar modelId = config[\"modelId\"] ?? \"gpt-4o-mini\";\n\nvar chatClient = new OpenAIClient(new ApiKeyCredential(apiKey), new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })\n    .GetChatClient(modelId).AsIChatClient();\n\n// ── Build pipeline ──────────────────────────────────────\nvar client = chatClient.AsBuilder()\n    .Use(inner => new RetryMiddleware(inner))\n    .UseFunctionInvocation()\n    .Build();\n\nConsole.WriteLine(\"[init] Pipeline: RetryMiddleware → FunctionInvocation → LLM\\n\");\n\n// ── Demo ────────────────────────────────────────────────\nvar messages = new List<ChatMessage>\n{\n    new(ChatRole.User, \"Explain exponential backoff in one sentence.\"),\n};\n\nConsole.WriteLine(\"[chat] Sending request with retry protection...\");\nvar response = await client.GetResponseAsync(messages);\nConsole.WriteLine($\"[assistant] {response.Text}\");\n\nConsole.WriteLine(\"\\n[done] Error recovery demo complete.\");\n\n// ── Middleware implementation ────────────────────────────\nsealed class RetryMiddleware(IChatClient inner) : DelegatingChatClient(inner)\n{\n    public int MaxRetries { get; set; } = 5;\n    public int BaseDelayMs { get; set; } = 500;\n    public int MaxTokens { get; set; } = 4096;\n\n    public override async Task<ChatResponse> GetResponseAsync(\n        IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken ct = default)\n    {\n        for (int attempt = 0; attempt < MaxRetries; attempt++)\n        {\n            try\n            {\n                var response = await base.GetResponseAsync(messages, options, ct);\n\n                if (response.FinishReason == ChatFinishReason.Length && MaxTokens < 32768)\n                {\n                    MaxTokens = Math.Min(MaxTokens * 4, 32768);\n                    Console.WriteLine($\"[ESCALATE] max_tokens → {MaxTokens}\");\n                    options = options?.Clone() ?? new ChatOptions();\n                    options.MaxOutputTokens = MaxTokens;\n                    response = await base.GetResponseAsync(messages, options, ct);\n                }\n\n                return response;\n            }\n            catch (Exception ex) when (IsTransient(ex))\n            {\n                var delay = BaseDelayMs * Math.Pow(2, attempt) + Random.Shared.Next(0, 250);\n                Console.WriteLine($\"[RETRY] Attempt {attempt + 1} after {delay}ms: {ex.Message}\");\n                await Task.Delay((int)delay, ct);\n            }\n            catch (Exception ex) when (ex.Message.Contains(\"prompt_too_long\") || ex.Message.Contains(\"context_length_exceeded\"))\n            {\n                Console.WriteLine(\"[RECOVERY] prompt_too_long — dropping oldest messages and retrying\");\n                var msgList = messages.ToList();\n                if (msgList.Count > 3)\n                {\n                    var trimmed = msgList.Take(1).Concat(msgList.TakeLast(2)).ToList();\n                    return await base.GetResponseAsync(trimmed, options, ct);\n                }\n                throw;\n            }\n        }\n        throw new Exception(\"Max retries exceeded for transient errors\");\n    }\n\n    static bool IsTransient(Exception ex) =>\n        ex.Message.Contains(\"429\") || ex.Message.Contains(\"529\") || ex.Message.Contains(\"503\");\n}\n",
+      "images": [
+        {
+          "src": "/course-assets/s12_error_recovery/error-recovery-overview.svg",
+          "alt": "error recovery overview"
+        }
+      ]
+    },
+    {
+      "id": "s13",
+      "filename": "s13_workflows/Program.cs",
+      "title": "Workflows",
+      "subtitle": "Graphs Beat Flat Loops",
+      "loc": 59,
+      "tools": [],
+      "newTools": [],
+      "coreAddition": "MAF WorkflowBuilder",
+      "keyInsight": "WorkflowBuilder orchestrates executors with edges, conditional routing, and parallel supersteps.",
+      "classes": [
+        {
+          "name": "ReverseExecutor",
+          "startLine": 75,
+          "endLine": 80
+        }
+      ],
+      "functions": [
+        {
+          "name": "HandleAsync",
+          "signature": "public override ValueTask<string> HandleAsync(string message, IWorkflowContext context, CancellationToken ct = default)",
+          "startLine": 77
+        }
+      ],
+      "layer": "collaboration",
+      "source": "using Microsoft.Agents.AI.Workflows;\n\nConsole.OutputEncoding = System.Text.Encoding.UTF8;\n\n// ── Function-based executor ──\nFunc<string, string> toUpper = s => s.ToUpperInvariant();\nvar upperExecutor = toUpper.BindAsExecutor(\"ToUpper\");\n\n// ── Custom executor class ──\nvar reverse = new ReverseExecutor();\n\n// ── Build workflow graph ──\nvar workflow = new WorkflowBuilder(upperExecutor)\n    .AddEdge(upperExecutor, reverse)\n    .WithOutputFrom(reverse)\n    .Build();\n\n// ── Execute with streaming ──\nConsole.WriteLine(\"═══ Workflow: ToUpper → Reverse ═══\");\nawait using var run = await InProcessExecution.RunStreamingAsync(workflow, \"Hello, World!\");\nawait foreach (var evt in run.WatchStreamAsync())\n{\n    switch (evt)\n    {\n        case ExecutorCompletedEvent completed:\n            Console.WriteLine($\"  {completed.ExecutorId}: {completed.Data}\");\n            break;\n        case WorkflowErrorEvent error:\n            Console.Error.WriteLine($\"  ERROR: {error.Exception?.Message}\");\n            break;\n    }\n}\n\n// ── Linear pipeline: three stages ──\nConsole.WriteLine(\"\\n═══ Pipeline: Trim → Upper → Duplicate ═══\");\nFunc<string, string> trim = s => s.Trim();\nFunc<string, string> duplicate = s => $\"{s} | {s}\";\nvar trimEx = trim.BindAsExecutor(\"Trim\");\nvar upperEx = toUpper.BindAsExecutor(\"Upper2\");\nvar dupEx = duplicate.BindAsExecutor(\"Duplicate\");\n\nvar pipeline = new WorkflowBuilder(trimEx)\n    .AddEdge(trimEx, upperEx)\n    .AddEdge(upperEx, dupEx)\n    .WithOutputFrom(dupEx)\n    .Build();\n\nawait using var run2 = await InProcessExecution.RunStreamingAsync(pipeline, \"  hello world  \");\nawait foreach (var evt in run2.WatchStreamAsync())\n{\n    if (evt is ExecutorCompletedEvent c)\n        Console.WriteLine($\"  {c.ExecutorId}: {c.Data}\");\n}\n\n// ── Fan-out: one input to multiple executors ──\nConsole.WriteLine(\"\\n═══ Fan-Out: ToUpper + ToLower ═══\");\nFunc<string, string> toLower = s => s.ToLowerInvariant();\nvar lowerEx = toLower.BindAsExecutor(\"ToLower\");\n\nvar fanOut = new WorkflowBuilder(upperExecutor)\n    .AddEdge(upperExecutor, lowerEx)\n    .WithOutputFrom(upperExecutor, lowerEx)\n    .Build();\n\nawait using var run3 = await InProcessExecution.RunStreamingAsync(fanOut, \"Hello\");\nawait foreach (var evt in run3.WatchStreamAsync())\n{\n    if (evt is ExecutorCompletedEvent c)\n        Console.WriteLine($\"  {c.ExecutorId}: {c.Data}\");\n}\n\nConsole.WriteLine(\"\\nDone.\");\n\n// ── Custom executor ──\nsealed class ReverseExecutor() : Executor<string, string>(\"Reverse\")\n{\n    public override ValueTask<string> HandleAsync(string message, IWorkflowContext context, CancellationToken ct = default)\n        => ValueTask.FromResult(string.Concat(message.Reverse()));\n}\n",
+      "images": [
+        {
+          "src": "/course-assets/s13_workflows/task-dag.svg",
+          "alt": "task dag"
+        },
+        {
+          "src": "/course-assets/s13_workflows/task-system-overview.svg",
+          "alt": "task system overview"
+        }
+      ]
+    },
+    {
+      "id": "s14",
+      "filename": "s14_background_tasks/Program.cs",
+      "title": "Background Tasks",
+      "subtitle": "Slow Work Goes to the Background",
+      "loc": 66,
+      "tools": [],
+      "newTools": [],
+      "coreAddition": "Async tool execution",
+      "keyInsight": "BackgroundService lets agents continue reasoning while slow operations complete elsewhere.",
+      "classes": [],
+      "functions": [
+        {
+          "name": "RunInBackground",
+          "signature": "string RunInBackground(string command)",
+          "startLine": 10
+        },
+        {
+          "name": "CheckTask",
+          "signature": "string CheckTask(string taskId)",
+          "startLine": 23
+        },
+        {
+          "name": "ListTasks",
+          "signature": "string ListTasks()",
+          "startLine": 35
+        }
+      ],
+      "layer": "concurrency",
+      "source": "using System.Collections.Concurrent;\n\nConsole.OutputEncoding = System.Text.Encoding.UTF8;\n\n// ── Background task store ──\nvar backgroundTasks = new ConcurrentDictionary<string, Task<string>>();\nvar taskMetadata = new ConcurrentDictionary<string, (string Command, DateTime Started)>();\n\n// ── Tool: start background work ──\nstring RunInBackground(string command)\n{\n    var id = $\"bg_{Guid.NewGuid().ToString()[..8]}\";\n    taskMetadata[id] = (command, DateTime.UtcNow);\n    backgroundTasks[id] = Task.Run(async () =>\n    {\n        await Task.Delay(3000); // Simulate long-running work\n        return $\"Completed: {command}\";\n    });\n    return $\"Started background task {id}\";\n}\n\n// ── Tool: check task status ──\nstring CheckTask(string taskId)\n{\n    if (!backgroundTasks.TryGetValue(taskId, out var task))\n        return $\"Task {taskId} not found\";\n    if (task.IsCompletedSuccessfully)\n        return $\"Task {taskId}: {task.Result}\";\n    if (task.IsFaulted)\n        return $\"Task {taskId}: FAILED - {task.Exception?.InnerException?.Message}\";\n    return $\"Task {taskId}: still running\";\n}\n\n// ── Tool: list all tasks ──\nstring ListTasks()\n{\n    if (backgroundTasks.IsEmpty) return \"No background tasks.\";\n    return string.Join(\"\\n\", backgroundTasks.Select(kv =>\n    {\n        var (cmd, started) = taskMetadata[kv.Key];\n        var elapsed = DateTime.UtcNow - started;\n        var status = kv.Value switch\n        {\n            { IsCompletedSuccessfully: true } => \"done\",\n            { IsFaulted: true } => \"failed\",\n            _ => $\"running ({elapsed.TotalSeconds:F0}s)\"\n        };\n        return $\"  {kv.Key}: [{status}] {cmd}\";\n    }));\n}\n\n// ── Simulate agent loop with background tasks ──\nConsole.WriteLine(\"═══ Background Task Execution ═══\\n\");\n\n// Start some tasks\nConsole.WriteLine(RunInBackground(\"dotnet build\"));\nConsole.WriteLine(RunInBackground(\"npm install\"));\nConsole.WriteLine(RunInBackground(\"dotnet test\"));\nConsole.WriteLine();\n\n// Poll loop (simulates agent checking between LLM turns)\nConsole.WriteLine(\"Polling for completion...\\n\");\nvar allTasks = backgroundTasks.Values.ToArray();\nwhile (!Task.WhenAll(allTasks).IsCompleted)\n{\n    Console.WriteLine($\"  [{DateTime.Now:HH:mm:ss}] Checking...\");\n    foreach (var id in backgroundTasks.Keys)\n        Console.WriteLine($\"    {CheckTask(id)}\");\n    await Task.Delay(1000);\n}\nConsole.WriteLine();\n\n// Final status\nConsole.WriteLine(\"═══ Final Status ═══\");\nConsole.WriteLine(ListTasks());\n\n// ── Notification injection pattern ──\nConsole.WriteLine(\"\\n═══ Notification Injection ═══\");\nvar completed = backgroundTasks\n    .Where(kv => kv.Value.IsCompletedSuccessfully)\n    .Select(kv => (Id: kv.Key, Result: kv.Value.Result))\n    .ToList();\n\nforeach (var (id, result) in completed)\n    Console.WriteLine($\"  <task_notification id=\\\"{id}\\\">{result}</task_notification>\");\n\nConsole.WriteLine(\"\\nDone.\");\n",
+      "images": [
+        {
+          "src": "/course-assets/s14_background_tasks/background-tasks-overview.svg",
+          "alt": "background tasks overview"
+        }
+      ]
+    },
+    {
+      "id": "s15",
+      "filename": "s15_multi_agent_workflows/Program.cs",
+      "title": "Multi-Agent Workflows",
+      "subtitle": "Teams Built from Workflow Graphs",
+      "loc": 63,
+      "tools": [],
+      "newTools": [],
+      "coreAddition": "AgentWorkflowBuilder",
+      "keyInsight": "AgentWorkflowBuilder.BuildSequential/BuildConcurrent orchestrates multiple agents as a workflow.",
+      "classes": [],
+      "functions": [],
+      "layer": "collaboration",
+      "source": "using Microsoft.Agents.AI;\nusing Microsoft.Agents.AI.Workflows;\nusing Microsoft.Extensions.AI;\nusing Microsoft.Extensions.Configuration;\nusing OpenAI;\nusing OpenAI.Chat;\n\nusing MAI = Microsoft.Extensions.AI;\n\nConsole.OutputEncoding = System.Text.Encoding.UTF8;\n\n// ── Config ──\nvar config = new ConfigurationBuilder()\n    .AddJsonFile(\"appsettings.json\", optional: true)\n    .AddEnvironmentVariables()\n    .Build();\n\nvar baseUrl = config[\"baseUrl\"] ?? \"https://api.deepseek.com/anthropic\";\nvar apiKey = config[\"apiKey\"] ?? Environment.GetEnvironmentVariable(\"DEEPSEEK_API_KEY\")\n    ?? throw new Exception(\"Set apiKey in appsettings.json or DEEPSEEK_API_KEY env var.\");\nvar modelId = config[\"modelId\"] ?? \"deepseek-v4-flash\";\n\nIChatClient chatClient = new ChatClient(modelId, new System.ClientModel.ApiKeyCredential(apiKey),\n    new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })\n    .AsIChatClient();\n\n// ── Create agents with different roles ──\nvar analyst = chatClient.AsAIAgent(\n    instructions: \"You analyze data and identify trends. Be concise, use bullet points.\",\n    name: \"Analyst\");\n\nvar reporter = chatClient.AsAIAgent(\n    instructions: \"You write executive summaries based on analysis. Be concise, 2-3 sentences max.\",\n    name: \"Reporter\");\n\n// ── Sequential workflow: analyst output feeds reporter ──\nConsole.WriteLine(\"═══ Sequential Workflow: Analyst → Reporter ═══\\n\");\nvar sequential = AgentWorkflowBuilder.BuildSequential(\"analysis-pipeline\", [analyst, reporter]);\n\nawait using var run1 = await InProcessExecution.RunStreamingAsync(sequential,\n    new MAI.ChatMessage(MAI.ChatRole.User, \"Analyze the trend: sales up 20% Q1, 15% Q2, 10% Q3\"));\nawait run1.TrySendMessageAsync(new TurnToken(emitEvents: true));\n\nawait foreach (var evt in run1.WatchStreamAsync())\n{\n    switch (evt)\n    {\n        case AgentResponseUpdateEvent update:\n            Console.Write(update.Data);\n            break;\n        case ExecutorCompletedEvent completed:\n            Console.WriteLine($\"\\n  [{completed.ExecutorId} completed]\\n\");\n            break;\n    }\n}\n\n// ── Concurrent workflow: agents run in parallel ──\nConsole.WriteLine(\"═══ Concurrent Workflow: Parallel Agents ═══\\n\");\nvar parallel = AgentWorkflowBuilder.BuildConcurrent(\"parallel-review\", [analyst, reporter]);\n\nawait using var run2 = await InProcessExecution.RunStreamingAsync(parallel,\n    new MAI.ChatMessage(MAI.ChatRole.User, \"Review: the team shipped 3 features this sprint with 2 bugs.\"));\nawait run2.TrySendMessageAsync(new TurnToken(emitEvents: true));\n\nawait foreach (var evt in run2.WatchStreamAsync())\n{\n    switch (evt)\n    {\n        case AgentResponseUpdateEvent update:\n            Console.Write($\"[{update.ExecutorId}] {update.Data}\");\n            break;\n        case ExecutorCompletedEvent completed:\n            Console.WriteLine($\"\\n  [{completed.ExecutorId} completed]\");\n            break;\n        case WorkflowErrorEvent error:\n            Console.Error.WriteLine($\"  ERROR: {error.Exception?.Message}\");\n            break;\n    }\n}\n\nConsole.WriteLine(\"\\nDone.\");\n",
+      "images": [
+        {
+          "src": "/course-assets/s15_multi_agent_workflows/agent-teams-overview.svg",
+          "alt": "agent teams overview"
+        },
+        {
+          "src": "/course-assets/s15_multi_agent_workflows/team-topology.svg",
+          "alt": "team topology"
+        }
+      ]
+    },
+    {
+      "id": "s16",
+      "filename": "s16_a2a_protocol/Program.cs",
+      "title": "A2A Protocol",
+      "subtitle": "Agents Talk to Agents",
+      "loc": 76,
+      "tools": [],
+      "newTools": [],
+      "coreAddition": "Agent-to-Agent communication",
+      "keyInsight": "The A2A protocol standardizes how agents discover and communicate with each other.",
+      "classes": [],
+      "functions": [],
+      "layer": "collaboration",
+      "source": "using System.ClientModel;\nusing System.Text.Json;\nusing Microsoft.Agents.AI;\nusing Microsoft.Extensions.AI;\nusing OpenAI;\n\nConsole.OutputEncoding = System.Text.Encoding.UTF8;\n\nvar jso = new JsonSerializerOptions { WriteIndented = true };\n\n// ── LLM client ──\nvar apiKey = Environment.GetEnvironmentVariable(\"DEEPSEEK_API_KEY\")\n    ?? Environment.GetEnvironmentVariable(\"OPENAI_API_KEY\") ?? \"sk-placeholder\";\nvar baseUrl = Environment.GetEnvironmentVariable(\"LLM_BASE_URL\") ?? \"https://api.deepseek.com/v1\";\nvar modelId = Environment.GetEnvironmentVariable(\"LLM_MODEL\") ?? \"deepseek-chat\";\n\nIChatClient chatClient = new OpenAIClient(new ApiKeyCredential(apiKey),\n    new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })\n    .GetChatClient(modelId).AsIChatClient();\n\n// ── A2A Agent Card (public metadata about an agent) ──\nvar agentCard = new\n{\n    name = \"WeatherAgent\",\n    description = \"Provides weather information for any city\",\n    version = \"1.0\",\n    url = \"https://example.com/a2a/weather\",\n    capabilities = new { streaming = true, pushNotifications = false },\n    skills = new[] { new { name = \"weather查询\", description = \"Get current weather\" } },\n    defaultInputModes = new[] { \"text\" },\n    defaultOutputModes = new[] { \"text\" },\n};\nConsole.WriteLine(\"═══ A2A Agent Card ═══\");\nConsole.WriteLine(JsonSerializer.Serialize(agentCard, jso));\n\n// ── A2A Request (JSON-RPC envelope) ──\nvar contextId = Guid.NewGuid().ToString();\nvar a2aRequest = new\n{\n    jsonrpc = \"2.0\",\n    id = Guid.NewGuid().ToString(),\n    method = \"message/send\",\n    @params = new\n    {\n        message = new\n        {\n            kind = \"message\",\n            role = \"user\",\n            parts = new[] { new { kind = \"text\", text = \"What is the weather in London?\" } },\n            messageId = Guid.NewGuid().ToString(),\n            contextId,\n        }\n    }\n};\nConsole.WriteLine(\"\\n═══ A2A Request ═══\");\nConsole.WriteLine(JsonSerializer.Serialize(a2aRequest, jso));\n\n// ── Local agent processes the A2A message ──\nAIAgent agent = chatClient.AsAIAgent(\n    instructions: \"You are a weather agent. Respond with current weather information.\",\n    name: \"WeatherAgent\",\n    description: \"Provides weather information\");\n\nvar userText = a2aRequest.@params.message.parts[0].text;\nConsole.WriteLine($\"\\n═══ Processing: {userText} ═══\");\nvar response = await agent.RunAsync(userText);\nConsole.WriteLine($\"Agent: {response.Text}\");\n\n// ── A2A Response (JSON-RPC result) ──\nvar a2aResponse = new\n{\n    jsonrpc = \"2.0\",\n    id = a2aRequest.id,\n    result = new\n    {\n        kind = \"message\",\n        role = \"agent\",\n        parts = new[] { new { kind = \"text\", text = response.Text } },\n        messageId = Guid.NewGuid().ToString(),\n        contextId,\n    }\n};\nConsole.WriteLine(\"\\n═══ A2A Response ═══\");\nConsole.WriteLine(JsonSerializer.Serialize(a2aResponse, jso));\n\n// ── A2A Task lifecycle ──\nConsole.WriteLine(\"\\n═══ Task Lifecycle ═══\");\nConsole.WriteLine(\"  submitted → working → completed (or failed/canceled)\");\nConsole.WriteLine(\"  Streaming uses message/stream → SSE: task-status-update, task-artifact-update\");\n\n// ── ASP.NET Core hosting (conceptual) ──\nConsole.WriteLine(\"\\n═══ ASP.NET Core Hosting (conceptual) ═══\");\nConsole.WriteLine(\"  // app.MapA2A(weatherAgent, \\\"/a2a/weather\\\", agentCard: new() { ... });\");\nConsole.WriteLine(\"  // builder.Services.AddAIAgent(\\\"weather\\\", ...);\");\n",
+      "images": [
+        {
+          "src": "/course-assets/s16_a2a_protocol/team-protocols-overview.svg",
+          "alt": "team protocols overview"
+        }
+      ]
+    },
+    {
+      "id": "s17",
+      "filename": "s17_mcp_integration/Program.cs",
+      "title": "MCP Integration",
+      "subtitle": "External Tools, Standard Protocol",
+      "loc": 63,
+      "tools": [],
+      "newTools": [],
+      "coreAddition": "McpClient tool bridge",
+      "keyInsight": "McpClientTool inherits AIFunction — MCP tools merge seamlessly into any agent's tool pool.",
+      "classes": [],
+      "functions": [],
+      "layer": "collaboration",
+      "source": "using System.ClientModel;\nusing System.ComponentModel;\nusing System.IO.Pipelines;\nusing Microsoft.Agents.AI;\nusing Microsoft.Extensions.AI;\nusing ModelContextProtocol.Client;\nusing ModelContextProtocol.Protocol;\nusing ModelContextProtocol.Server;\nusing OpenAI;\n\nConsole.OutputEncoding = System.Text.Encoding.UTF8;\n\n// ── LLM client ──\nvar apiKey = Environment.GetEnvironmentVariable(\"DEEPSEEK_API_KEY\")\n    ?? Environment.GetEnvironmentVariable(\"OPENAI_API_KEY\")\n    ?? \"sk-placeholder\";\nvar baseUrl = Environment.GetEnvironmentVariable(\"LLM_BASE_URL\") ?? \"https://api.deepseek.com/v1\";\nvar modelId = Environment.GetEnvironmentVariable(\"LLM_MODEL\") ?? \"deepseek-chat\";\n\nIChatClient chatClient = new OpenAIClient(new ApiKeyCredential(apiKey),\n    new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })\n    .GetChatClient(modelId).AsIChatClient();\n\n// ── Built-in tools ──\n[Description(\"Get the weather for a location\")]\nstatic string GetWeather([Description(\"City name\")] string city) =>\n    city.ToLower() switch\n    {\n        \"london\" => \"London: 15°C, cloudy\",\n        \"tokyo\" => \"Tokyo: 28°C, sunny\",\n        _ => $\"{city}: 22°C, partly cloudy\"\n    };\n\nvar builtInTools = new List<AITool> { AIFunctionFactory.Create(GetWeather) };\n\n// ── In-memory MCP server with tools ──\nPipe clientToServer = new(), serverToClient = new();\n\nvar searchTool = McpServerTool.Create(\n    (string query) => $\"Search results for '{query}': Found 3 docs about .NET and C#.\",\n    new() { Name = \"search_docs\", Description = \"Search documentation\" });\n\nvar calcTool = McpServerTool.Create(\n    (double a, double b) => a + b,\n    new() { Name = \"add_numbers\", Description = \"Add two numbers\" });\n\nvar serverOptions = new McpServerOptions { ToolCollection = [searchTool, calcTool] };\n\nawait using var server = McpServer.Create(\n    new StreamServerTransport(clientToServer.Reader.AsStream(), serverToClient.Writer.AsStream()),\n    serverOptions);\n_ = server.RunAsync();\n\n// ── MCP client connects and discovers tools ──\nawait using var mcpClient = await McpClient.CreateAsync(\n    new StreamClientTransport(clientToServer.Writer.AsStream(), serverToClient.Reader.AsStream()));\n\nvar mcpTools = await mcpClient.ListToolsAsync();\nConsole.WriteLine(\"═══ MCP Server Tools ═══\");\nforeach (var tool in mcpTools)\n    Console.WriteLine($\"  {tool.Name}: {tool.Description}\");\n\n// ── Merge built-in + MCP tools (McpClientTool IS-A AIFunction) ──\nvar allTools = new List<AITool>(builtInTools);\nforeach (var t in mcpTools) allTools.Add(t);\nConsole.WriteLine($\"\\nTool pool: {builtInTools.Count} built-in + {mcpTools.Count} MCP = {allTools.Count} total\");\n\n// ── Agent with unified tool pool ──\nConsole.WriteLine(\"\\n═══ Agent with MCP Tools ═══\");\nAIAgent agent = chatClient.AsAIAgent(\n    instructions: \"You are a helpful assistant. Use search_docs for documentation queries and GetWeather for weather.\",\n    name: \"McpAgent\",\n    description: \"Agent with MCP tools\",\n    tools: allTools);\n\nvar response = await agent.RunAsync(\"Search for .NET documentation and tell me the weather in Tokyo.\");\nConsole.WriteLine(response.Text);\n\nConsole.WriteLine(\"\\n═══ MCP Pattern Summary ═══\");\nConsole.WriteLine(@\"\n  StdioClientTransport  → connects to external MCP server via stdio\n  McpClient.ListToolsAsync() → discovers available tools\n  McpClientTool IS-A AIFunction → no conversion needed\n  Tools merge into one pool → agent sees built-in + MCP tools uniformly\n\");\n",
+      "images": [
+        {
+          "src": "/course-assets/s17_mcp_integration/mcp-architecture.svg",
+          "alt": "mcp architecture"
+        }
+      ]
+    },
+    {
+      "id": "s18",
+      "filename": "s18_evaluation/Program.cs",
+      "title": "Evaluation",
+      "subtitle": "Measure What You Build",
+      "loc": 61,
+      "tools": [],
+      "newTools": [],
+      "coreAddition": "MEAI quality evaluators",
+      "keyInsight": "CoherenceEvaluator, RelevanceEvaluator, and friends score agent responses automatically.",
+      "classes": [],
+      "functions": [
+        {
+          "name": "FormatScore",
+          "signature": "static string FormatScore(NumericMetric m)",
+          "startLine": 81
+        },
+        {
+          "name": "Truncate",
+          "signature": "static string Truncate(string s, int max)",
+          "startLine": 84
+        }
+      ],
+      "layer": "collaboration",
+      "source": "using System.ClientModel;\nusing Microsoft.Agents.AI;\nusing Microsoft.Extensions.AI;\nusing Microsoft.Extensions.AI.Evaluation;\nusing Microsoft.Extensions.AI.Evaluation.Quality;\nusing OpenAI;\n\nConsole.OutputEncoding = System.Text.Encoding.UTF8;\n\n// ── LLM client ──\nvar apiKey = Environment.GetEnvironmentVariable(\"DEEPSEEK_API_KEY\")\n    ?? Environment.GetEnvironmentVariable(\"OPENAI_API_KEY\") ?? \"sk-placeholder\";\nvar baseUrl = Environment.GetEnvironmentVariable(\"LLM_BASE_URL\") ?? \"https://api.deepseek.com/v1\";\nvar modelId = Environment.GetEnvironmentVariable(\"LLM_MODEL\") ?? \"deepseek-chat\";\n\nIChatClient chatClient = new OpenAIClient(new ApiKeyCredential(apiKey),\n    new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })\n    .GetChatClient(modelId).AsIChatClient();\n\n// ── Create evaluators ──\nIEvaluator coherenceEval = new CoherenceEvaluator();\nIEvaluator relevanceEval = new RelevanceEvaluator();\nIEvaluator fluencyEval = new FluencyEvaluator();\nIEvaluator compositeEval = new CompositeEvaluator(coherenceEval, relevanceEval, fluencyEval);\n\n// ChatConfiguration wraps IChatClient for the evaluation pipeline\nvar evalConfig = new ChatConfiguration(chatClient);\n\n// ── Queries to evaluate ──\nvar queries = new[]\n{\n    \"What is machine learning?\",\n    \"Explain the difference between TCP and UDP.\",\n    \"How does garbage collection work in .NET?\",\n};\n\nConsole.WriteLine(\"═══ Agent Response Evaluation ═══\\n\");\n\nforeach (var query in queries)\n{\n    Console.WriteLine($\">>> {query}\");\n\n    var messages = new List<ChatMessage> { new(ChatRole.User, query) };\n    ChatResponse response = await chatClient.GetResponseAsync(messages);\n    Console.WriteLine($\"<<< {Truncate(response.Text, 120)}\");\n\n    // Evaluate with composite evaluator (all three at once)\n    EvaluationResult result = await compositeEval.EvaluateAsync(messages, response, evalConfig);\n\n    var coherence = result.Get<NumericMetric>(CoherenceEvaluator.CoherenceMetricName);\n    var relevance = result.Get<NumericMetric>(RelevanceEvaluator.RelevanceMetricName);\n    var fluency = result.Get<NumericMetric>(FluencyEvaluator.FluencyMetricName);\n\n    Console.WriteLine($\"  Coherence : {FormatScore(coherence)}\");\n    Console.WriteLine($\"  Relevance : {FormatScore(relevance)}\");\n    Console.WriteLine($\"  Fluency   : {FormatScore(fluency)}\");\n    Console.WriteLine();\n}\n\n// ── Individual evaluator (string-based shorthand) ──\nConsole.WriteLine(\"═══ Single Evaluator (string shorthand) ═══\");\nvar quickResult = await relevanceEval.EvaluateAsync(\n    \"What is C#?\", \"C# is a modern object-oriented programming language.\", evalConfig);\nvar quickScore = quickResult.Get<NumericMetric>(RelevanceEvaluator.RelevanceMetricName);\nConsole.WriteLine($\"  Relevance: {FormatScore(quickScore)}\");\n\n// ── Evaluate with context (groundedness) ──\nConsole.WriteLine(\"\\n═══ Groundedness with Context ═══\");\nvar groundednessEval = new GroundednessEvaluator();\nvar groundedResult = await groundednessEval.EvaluateAsync(\n    \"How does GC work in .NET?\",\n    \".NET uses a generational garbage collector with three generations.\",\n    evalConfig);\nvar groundedScore = groundedResult.Get<NumericMetric>(GroundednessEvaluator.GroundednessMetricName);\nConsole.WriteLine($\"  Groundedness: {FormatScore(groundedScore)}\");\n\nConsole.WriteLine(\"\\n═══ Available Evaluators ═══\");\nConsole.WriteLine(\"  Coherence, Relevance, Fluency, Groundedness, Completeness,\");\nConsole.WriteLine(\"  Equivalence, IntentResolution, TaskAdherence, Retrieval, ToolCallAccuracy\");\n\nstatic string FormatScore(NumericMetric m) =>\n    $\"{m.Value:F1}/5 ({m.Interpretation?.Rating})\";\n\nstatic string Truncate(string s, int max) =>\n    s.Length <= max ? s : s[..max] + \"...\";\n",
+      "images": []
+    },
+    {
+      "id": "s19",
+      "filename": "s19_hosting_observability/Program.cs",
+      "title": "Hosting & Observability",
+      "subtitle": "Production-Ready Agents",
+      "loc": 40,
+      "tools": [],
+      "newTools": [],
+      "coreAddition": "ASP.NET Core + OpenTelemetry",
+      "keyInsight": "AddAIAgent() hosts agents in ASP.NET Core; UseOpenTelemetry() adds distributed tracing.",
+      "classes": [],
+      "functions": [],
+      "layer": "collaboration",
+      "source": "using System.ClientModel;\nusing System.Diagnostics;\nusing Microsoft.Agents.AI;\nusing Microsoft.Agents.AI.Hosting;\nusing Microsoft.Extensions.AI;\nusing OpenTelemetry;\nusing OpenTelemetry.Resources;\nusing OpenTelemetry.Trace;\nusing OpenAI;\n\nConsole.OutputEncoding = System.Text.Encoding.UTF8;\n\nvar builder = WebApplication.CreateBuilder(args);\n\n// ── OpenTelemetry Setup ──\nvar serviceName = \"AgentTutorial\";\nvar sourceName = \"AgentTracing\";\nusing var tracerProvider = Sdk.CreateTracerProviderBuilder()\n    .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(serviceName))\n    .AddSource(sourceName)\n    .AddHttpClientInstrumentation()\n    .AddOtlpExporter()\n    .Build();\n\n// ── Register IChatClient ──\nvar baseUrl = builder.Configuration[\"baseUrl\"] ?? \"https://api.openai.com/v1\";\nvar apiKey = builder.Configuration[\"apiKey\"] ?? Environment.GetEnvironmentVariable(\"OPENAI_API_KEY\") ?? \"\";\nvar modelId = builder.Configuration[\"modelId\"] ?? \"gpt-4o-mini\";\n\nIChatClient baseClient = new OpenAIClient(new ApiKeyCredential(apiKey),\n    new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })\n    .GetChatClient(modelId).AsIChatClient();\n\n// ── Instrument with OpenTelemetry ──\nvar instrumentedClient = baseClient.AsBuilder()\n    .UseFunctionInvocation()\n    .UseOpenTelemetry(sourceName: sourceName, configure: c => c.EnableSensitiveData = true)\n    .Build();\n\nbuilder.Services.AddSingleton<IChatClient>(instrumentedClient);\n\n// ── Register Agent ──\nbuilder.AddAIAgent(\"assistant\", instructions: \"You are a helpful assistant.\");\n\nvar app = builder.Build();\n\n// ── Minimal API ──\napp.MapPost(\"/chat\", async (string message, IChatClient client) =>\n{\n    using var activity = new ActivitySource(sourceName).StartActivity(\"ManualChat\");\n    var response = await client.GetResponseAsync(message);\n    return Results.Ok(new { response = response.Text });\n});\n\napp.MapGet(\"/health\", () => Results.Ok(new { status = \"healthy\", timestamp = DateTime.UtcNow }));\n\napp.Run();\n",
+      "images": []
+    },
+    {
+      "id": "s20",
+      "filename": "s20_comprehensive/Program.cs",
+      "title": "Comprehensive Agent",
+      "subtitle": "All Mechanisms, One Pipeline",
+      "loc": 184,
+      "tools": [],
+      "newTools": [],
+      "coreAddition": "Integrated MAF/MEAI harness",
+      "keyInsight": "The final agent wires tools, middleware, compaction, skills, and composition into one pipeline.",
+      "classes": [
+        {
+          "name": "RetryMiddleware",
+          "startLine": 169,
+          "endLine": 207
+        },
+        {
+          "name": "AuditMiddleware",
+          "startLine": 208,
+          "endLine": 222
+        }
+      ],
+      "functions": [
+        {
+          "name": "GetPrompt",
+          "signature": "string GetPrompt()",
+          "startLine": 134
+        },
+        {
+          "name": "GetResponseAsync",
+          "signature": "public override async Task<ChatResponse> GetResponseAsync( IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken ct = default)",
+          "startLine": 175
+        },
+        {
+          "name": "IsTransient",
+          "signature": "static bool IsTransient(Exception ex)",
+          "startLine": 203
+        },
+        {
+          "name": "GetResponseAsync",
+          "signature": "public override async Task<ChatResponse> GetResponseAsync( IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken ct = default)",
+          "startLine": 210
+        }
+      ],
+      "layer": "collaboration",
+      "source": "using System.ClientModel;\nusing System.ComponentModel;\nusing System.Diagnostics;\nusing Microsoft.Agents.AI;\nusing Microsoft.Extensions.AI;\nusing Microsoft.Extensions.Configuration;\nusing OpenAI;\n\nConsole.OutputEncoding = System.Text.Encoding.UTF8;\n\n// ── Config (s01) ──\nvar config = new ConfigurationBuilder()\n    .AddJsonFile(\"appsettings.json\", optional: true)\n    .AddEnvironmentVariables()\n    .Build();\nvar baseUrl = config[\"baseUrl\"] ?? \"https://api.openai.com/v1\";\nvar apiKey = config[\"apiKey\"] ?? Environment.GetEnvironmentVariable(\"OPENAI_API_KEY\") ?? throw new Exception(\"No API key\");\nvar modelId = config[\"modelId\"] ?? \"gpt-4o-mini\";\n\n// ── Base Client (s01: provider-agnostic IChatClient) ──\nIChatClient baseClient = new OpenAIClient(new ApiKeyCredential(apiKey),\n    new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })\n    .GetChatClient(modelId).AsIChatClient();\n\n// ── Middleware Pipeline (s02: layered middleware) ──\n//   Request  → Audit → Retry → Reducer → FunctionInvocation → LLM\n//   Response ← Audit ← Retry ← Reducer ← FunctionInvocation ← LLM\nvar client = baseClient.AsBuilder()\n    .Use(inner => new AuditMiddleware(inner))\n    .Use(inner => new RetryMiddleware(inner))\n    .UseChatReducer(new MessageCountingChatReducer(50))\n    .UseFunctionInvocation()\n    .Build();\n\n// ── Tools (s04: AIFunctionFactory) ──\n[Description(\"Get weather for a city\")]\nstatic string GetWeather([Description(\"City name\")] string city) =>\n    city.ToLower() switch\n    {\n        \"london\" => \"London: 15°C, cloudy\",\n        \"tokyo\" => \"Tokyo: 28°C, sunny\",\n        _ => $\"{city}: 22°C, partly cloudy\"\n    };\n\n[Description(\"Run a shell command\")]\nstatic string RunBash([Description(\"Command to execute\")] string command) =>\n    $\"Executed: {command}\";\n\nvar tools = new List<AITool>\n{\n    AIFunctionFactory.Create(GetWeather),\n    new ApprovalRequiredAIFunction(AIFunctionFactory.Create(RunBash)),  // s05: approval gate\n};\n\n// ── TodoWrite Tool (s07: planning state) ──\nvar todoState = new List<(string content, string status)>();\n[Description(\"Add a todo item\")]\nstatic string TodoWrite(\n    [Description(\"List of todos as content|status lines\")] string items,\n    List<(string, string)> state)  // captured via closure below\n{\n    state.Clear();\n    foreach (var line in items.Split('\\n', StringSplitOptions.RemoveEmptyEntries))\n    {\n        var parts = line.Split('|', 2);\n        state.Add((parts[0].Trim(), parts.Length > 1 ? parts[1].Trim() : \"pending\"));\n    }\n    return $\"Updated: {state.Count} items\";\n}\n\n// We register a closure-captured version\nvar todoTool = AIFunctionFactory.Create(\n    (string items) => TodoWrite(items, todoState),\n    name: \"todo_write\",\n    description: \"Manage a todo list. Format: one 'content|status' per line.\");\ntools.Add(todoTool);\n\n// ── Skill Loading (s09: on-demand from skills/) ──\nvar skillsDir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, \"..\", \"..\", \"..\", \"..\", \"skills\"));\nvar skillCatalog = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);\nif (Directory.Exists(skillsDir))\n{\n    foreach (var dir in Directory.GetDirectories(skillsDir))\n    {\n        var skillFile = Path.Combine(dir, \"SKILL.md\");\n        if (File.Exists(skillFile))\n        {\n            var name = Path.GetFileName(dir);\n            skillCatalog[name] = skillFile;\n        }\n    }\n}\n\nvar loadSkill = AIFunctionFactory.Create(\n    (string name) =>\n    {\n        if (skillCatalog.TryGetValue(name, out var path))\n            return File.ReadAllText(path);\n        return $\"Skill '{name}' not found. Available: {string.Join(\", \", skillCatalog.Keys)}\";\n    },\n    name: \"load_skill\",\n    description: \"Load a skill by name for detailed instructions.\");\ntools.Add(loadSkill);\n\n// ── Agent-as-Tool (s08: specialist delegation) ──\nAIAgent researcher = client.AsAIAgent(\n    instructions: \"You research topics concisely. Return key facts only.\",\n    name: \"Researcher\",\n    description: \"Researches topics and returns facts\");\nAIAgent writer = client.AsAIAgent(\n    instructions: \"You write clear summaries from research notes.\",\n    name: \"Writer\",\n    description: \"Writes summaries from notes\");\ntools.Add(researcher.AsAIFunction());\ntools.Add(writer.AsAIFunction());\n\n// ── Main Agent (s03: ChatClientAgent with all tools) ──\nvar agent = new ChatClientAgent(client,\n    instructions: \"You are a comprehensive coding assistant. Use tools as needed. \" +\n                  \"Delegate research to Researcher, writing to Writer. \" +\n                  \"Use todo_write to plan complex tasks. Use load_skill for domain guidance.\",\n    name: \"ComprehensiveAgent\",\n    description: \"Capstone agent with all MAF/MEAI features\",\n    tools: tools);\n\n// ── Dynamic System Prompt (s11: sections + caching) ──\nvar sections = new Dictionary<string, string>\n{\n    [\"identity\"] = \"You are a comprehensive agent with all mechanisms enabled.\",\n    [\"tools\"] = $\"Available: {string.Join(\", \", tools.Select(t => t.Name))}\",\n    [\"workspace\"] = $\"Working directory: {Directory.GetCurrentDirectory()}\",\n};\nstring? cachedPrompt = null;\nstring GetPrompt()\n{\n    if (cachedPrompt is not null) return cachedPrompt;\n    cachedPrompt = string.Join(\"\\n\\n\", sections.Values);\n    if (todoState.Count > 0)\n        cachedPrompt += \"\\n\\nCurrent todos:\\n\" + string.Join(\"\\n\", todoState.Select(t => $\"- [{t.status}] {t.content}\"));\n    return cachedPrompt;\n}\n\n// ── Interactive REPL ──\nConsole.WriteLine(\"═══ Comprehensive Agent (MAF/MEAI) ═══\");\nConsole.WriteLine(\"Features: middleware pipeline, tools, approval, audit, todo, skills, agent-as-tool, dynamic prompt, retry\");\nConsole.WriteLine(\"Type 'q' to quit.\\n\");\n\nwhile (true)\n{\n    Console.Write(\"> \");\n    var input = Console.ReadLine();\n    if (input is null or \"q\" or \"quit\") break;\n\n    var prompt = GetPrompt();\n    Console.WriteLine($\"[system] Prompt: {prompt.Length} chars, Todos: {todoState.Count}\");\n\n    try\n    {\n        var response = await agent.RunAsync(input);\n        Console.WriteLine(response.Text);\n    }\n    catch (Exception ex)\n    {\n        Console.WriteLine($\"[error] {ex.Message}\");\n    }\n}\n\n// ── Retry Middleware (s12: exponential backoff + token escalation) ──\nsealed class RetryMiddleware(IChatClient inner) : DelegatingChatClient(inner)\n{\n    public int MaxRetries { get; set; } = 3;\n    public int BaseDelayMs { get; set; } = 500;\n    public int MaxTokens { get; set; } = 4096;\n\n    public override async Task<ChatResponse> GetResponseAsync(\n        IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken ct = default)\n    {\n        for (int attempt = 0; attempt < MaxRetries; attempt++)\n        {\n            try\n            {\n                var response = await base.GetResponseAsync(messages, options, ct);\n                if (response.FinishReason == ChatFinishReason.Length && MaxTokens < 32768)\n                {\n                    MaxTokens = Math.Min(MaxTokens * 4, 32768);\n                    Console.WriteLine($\"[ESCALATE] max_tokens → {MaxTokens}\");\n                    options = options?.Clone() ?? new ChatOptions();\n                    options.MaxOutputTokens = MaxTokens;\n                    return await base.GetResponseAsync(messages, options, ct);\n                }\n                return response;\n            }\n            catch (Exception ex) when (IsTransient(ex))\n            {\n                var delay = BaseDelayMs * Math.Pow(2, attempt) + Random.Shared.Next(0, 250);\n                Console.WriteLine($\"[RETRY] Attempt {attempt + 1} after {delay}ms: {ex.Message}\");\n                await Task.Delay((int)delay, ct);\n            }\n        }\n        throw new Exception(\"Max retries exceeded\");\n    }\n\n    static bool IsTransient(Exception ex) =>\n        ex.Message.Contains(\"429\") || ex.Message.Contains(\"529\") || ex.Message.Contains(\"503\");\n}\n\n// ── Audit Middleware (s06: logging hooks) ──\nsealed class AuditMiddleware(IChatClient inner) : DelegatingChatClient(inner)\n{\n    public override async Task<ChatResponse> GetResponseAsync(\n        IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken ct = default)\n    {\n        var lastUser = messages.LastOrDefault(m => m.Role == ChatRole.User)?.Text ?? \"(no message)\";\n        Console.WriteLine($\"[AUDIT] → {lastUser[..Math.Min(60, lastUser.Length)]}...\");\n        var sw = Stopwatch.StartNew();\n        var response = await base.GetResponseAsync(messages, options, ct);\n        sw.Stop();\n        Console.WriteLine($\"[AUDIT] ← {response.Text?.Length ?? 0} chars in {sw.ElapsedMilliseconds}ms\");\n        return response;\n    }\n}\n",
+      "images": [
+        {
+          "src": "/course-assets/s20_comprehensive/system-architecture.svg",
+          "alt": "system architecture"
+        }
+      ]
+    }
+  ],
+  "diffs": [
+    {
+      "from": "s01",
+      "to": "s02",
+      "newClasses": [
+        "TimingChatClient",
+        "LoggingChatClient"
+      ],
+      "newFunctions": [
+        "GetResponseAsync",
+        "GetStreamingResponseAsync",
+        "GetResponseAsync",
+        "GetStreamingResponseAsync"
+      ],
+      "newTools": [],
+      "locDelta": 47
+    },
+    {
+      "from": "s02",
+      "to": "s03",
+      "newClasses": [],
+      "newFunctions": [],
+      "newTools": [],
+      "locDelta": -41
+    },
+    {
+      "from": "s03",
+      "to": "s04",
+      "newClasses": [],
+      "newFunctions": [
+        "GetCurrentTime"
+      ],
+      "newTools": [],
+      "locDelta": 16
+    },
+    {
+      "from": "s04",
+      "to": "s05",
+      "newClasses": [],
+      "newFunctions": [],
+      "newTools": [],
+      "locDelta": 7
+    },
+    {
+      "from": "s05",
+      "to": "s06",
+      "newClasses": [
+        "AuditMiddleware"
+      ],
+      "newFunctions": [
+        "GetResponseAsync"
+      ],
+      "newTools": [],
+      "locDelta": 24
+    },
+    {
+      "from": "s06",
+      "to": "s07",
+      "newClasses": [
+        "TodoItem"
+      ],
+      "newFunctions": [],
+      "newTools": [],
+      "locDelta": -35
+    },
+    {
+      "from": "s07",
+      "to": "s08",
+      "newClasses": [],
+      "newFunctions": [],
+      "newTools": [],
+      "locDelta": -16
+    },
+    {
+      "from": "s08",
+      "to": "s09",
+      "newClasses": [
+        "SkillEntry"
+      ],
+      "newFunctions": [],
+      "newTools": [],
+      "locDelta": 29
+    },
+    {
+      "from": "s09",
+      "to": "s10",
+      "newClasses": [],
+      "newFunctions": [
+        "GetCurrentTime"
+      ],
+      "newTools": [],
+      "locDelta": -27
+    },
+    {
+      "from": "s10",
+      "to": "s11",
+      "newClasses": [],
+      "newFunctions": [
+        "BuildPrompt"
+      ],
+      "newTools": [],
+      "locDelta": 12
+    },
+    {
+      "from": "s11",
+      "to": "s12",
+      "newClasses": [
+        "RetryMiddleware"
+      ],
+      "newFunctions": [
+        "GetResponseAsync",
+        "IsTransient"
+      ],
+      "newTools": [],
+      "locDelta": 21
+    },
+    {
+      "from": "s12",
+      "to": "s13",
+      "newClasses": [
+        "ReverseExecutor"
+      ],
+      "newFunctions": [
+        "HandleAsync"
+      ],
+      "newTools": [],
+      "locDelta": -14
+    },
+    {
+      "from": "s13",
+      "to": "s14",
+      "newClasses": [],
+      "newFunctions": [
+        "RunInBackground",
+        "CheckTask",
+        "ListTasks"
+      ],
+      "newTools": [],
+      "locDelta": 7
+    },
+    {
+      "from": "s14",
+      "to": "s15",
+      "newClasses": [],
+      "newFunctions": [],
+      "newTools": [],
+      "locDelta": -3
+    },
+    {
+      "from": "s15",
+      "to": "s16",
+      "newClasses": [],
+      "newFunctions": [],
+      "newTools": [],
+      "locDelta": 13
+    },
+    {
+      "from": "s16",
+      "to": "s17",
+      "newClasses": [],
+      "newFunctions": [],
+      "newTools": [],
+      "locDelta": -13
+    },
+    {
+      "from": "s17",
+      "to": "s18",
+      "newClasses": [],
+      "newFunctions": [
+        "FormatScore",
+        "Truncate"
+      ],
+      "newTools": [],
+      "locDelta": -2
+    },
+    {
+      "from": "s18",
+      "to": "s19",
+      "newClasses": [],
+      "newFunctions": [],
+      "newTools": [],
+      "locDelta": -21
+    },
+    {
+      "from": "s19",
+      "to": "s20",
+      "newClasses": [
+        "RetryMiddleware",
+        "AuditMiddleware"
+      ],
+      "newFunctions": [
+        "GetPrompt",
+        "GetResponseAsync",
+        "IsTransient",
+        "GetResponseAsync"
+      ],
+      "newTools": [],
+      "locDelta": 144
+    }
+  ]
+}
