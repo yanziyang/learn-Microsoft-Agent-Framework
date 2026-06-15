@@ -218,6 +218,18 @@ cd web && npm install && npm run dev           # docs renderer on http://localho
 
 ---
 
+## Credits
+
+This project was inspired by and references the following open-source project:
+
+[learn-claude-code](https://github.com/shareAI-lab/learn-claude-code) by [ShareAI Lab](https://github.com/shareAI-lab)
+
+Many thanks to the authors and contributors for sharing their work with the community. This project builds upon ideas, concepts, and/or implementation approaches presented in their repository.
+
+Please refer to the original project for additional documentation, updates, and licensing information.
+
+---
+
 ## License
 
 [MIT](./LICENSE) &copy; contributors. PRs welcome &mdash; open an issue if you spot a typo, an outdated API, or a chapter that could use more love.

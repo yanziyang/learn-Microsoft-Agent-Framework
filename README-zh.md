@@ -218,6 +218,18 @@ cd web && npm install && npm run dev             # 文档站点跑在 http://loc
 
 ---
 
+## 致谢
+
+本项目受到以下开源项目的启发并参考了其内容：
+
+[learn-claude-code](https://github.com/shareAI-lab/learn-claude-code) by [ShareAI Lab](https://github.com/shareAI-lab)
+
+非常感谢原项目作者和贡献者们与社区分享他们的工作。本项目在其仓库中呈现的创意、概念和/或实现方法的基础上进行了扩展和改进。
+
+请参阅原始项目以获取更多文档、更新和许可证信息。
+
+---
+
 ## 许可证
 
 [MIT](./LICENSE) &copy; 各位贡献者。欢迎 PR &mdash; 发现拼写错误、过时 API，或者觉得某一章可以写得更好，请直接开 Issue。
