@@ -1,449 +1,229 @@
-# Learn Claude Code -- 真正的 Agent Harness 工程
+<div align="center">
 
-[English](./README.md) | [中文](./README-zh.md) | [日本語](./README-ja.md)
+<img src="./assets/hero.png" alt="Microsoft Agent Framework 实战指南" width="100%" />
 
-## Agency 来自模型，Agent 产品 = 模型 + Harness (C# Edition)
+# Microsoft Agent Framework &nbsp;·&nbsp; 实战指南
 
-在讨论代码之前，先把一件事说清楚。
+**用 .NET 10 / C# 构建生产级 AI Agent 的 20 章渐进式教程**
+*从一次 `IChatClient` 调用，到一支全链路可观测的多 Agent 舰队。*
 
-**Agency -- 感知、推理、行动的能力 -- 来自模型训练，不是来自外部代码的编排。** 但一个能干活的 agent 产品，需要模型和 harness 缺一不可。模型是驾驶者，harness 是载具。本仓库教你造载具。
+[![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
+[![C#](https://img.shields.io/badge/C%23-latest-239120?style=flat-square&logo=csharp&logoColor=white)](https://learn.microsoft.com/dotnet/csharp/)
+[![MAF](https://img.shields.io/badge/Microsoft.Agents.AI-v1.10.0-7B61FF?style=flat-square)](https://www.nuget.org/packages/Microsoft.Agents.AI)
+[![MEAI](https://img.shields.io/badge/Microsoft.Extensions.AI-v10.7.0-0078D4?style=flat-square)](https://www.nuget.org/packages/Microsoft.Extensions.AI)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](./LICENSE)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](https://github.com/yanziyang/learn-Microsoft-Agent-Framework/pulls)
 
-### Agency 从哪来
+[English](./README.md) &nbsp;·&nbsp; **[中文](./README-zh.md)**
 
-Agent 的核心是一个神经网络 -- Transformer、RNN、一个被训练出来的函数 -- 经过数十亿次梯度更新，在行动序列数据上学会了感知环境、推理目标、采取行动。Agency 这个东西从来不是外面那层代码赋予的，而是模型在训练中学到的。
+[快速开始](#快速开始) &nbsp;·&nbsp; [架构概览](#架构概览) &nbsp;·&nbsp; [章节地图](#章节地图--20-课) &nbsp;·&nbsp; [学习路径](#学习路径) &nbsp;·&nbsp; [配置说明](#配置说明)
 
-人类就是最好的例子。一个由数百万年进化训练出来的生物神经网络，通过感官感知世界，通过大脑推理，通过身体行动。当 DeepMind、OpenAI 或 Anthropic 说 "agent" 时，他们说的核心都是同一件事：**一个通过训练学会了行动的模型，加上让它能在特定环境中工作的基础设施。**
-
-历史已经写好了铁证：
-
-- **2013 -- DeepMind DQN 玩 Atari。** 一个神经网络，只接收原始像素和游戏分数，学会了 7 款 Atari 2600 游戏 -- 超越所有先前算法，在其中 3 款上击败人类专家。到 2015 年，同一架构扩展到 [49 款游戏，达到职业人类测试员水平](https://www.nature.com/articles/nature14236)，论文发表在 *Nature*。没有游戏专属规则。没有决策树。一个模型，从经验中学习。那个模型就是 agent。
-
-- **2019 -- OpenAI Five 征服 Dota 2。** 五个神经网络，在 10 个月内与自己对战了 [45,000 年的 Dota 2](https://openai.com/index/openai-five-defeats-dota-2-world-champions/)，在旧金山直播赛上 2-0 击败了 **OG** -- TI8 世界冠军。随后的公开竞技场中，AI 在 42,729 场比赛中胜率 99.4%。没有脚本化的策略。没有元编程的团队协调逻辑。模型完全通过自我对弈学会了团队协作、战术和实时适应。
-
-- **2019 -- DeepMind AlphaStar 制霸星际争霸 II。** AlphaStar 在闭门赛中 [10-1 击败职业选手](https://deepmind.google/blog/alphastar-mastering-the-real-time-strategy-game-starcraft-ii/)，随后在欧洲服务器上达到[宗师段位](https://www.nature.com/articles/d41586-019-03298-6) -- 90,000 名玩家中的前 0.15%。一个信息不完全、实时决策、组合动作空间远超国际象棋和围棋的游戏。Agent 是什么？是模型。训练出来的。不是编出来的。
-
-- **2019 -- 腾讯绝悟统治王者荣耀。** 腾讯 AI Lab 的 "绝悟" 于 2019 年 8 月 2 日世冠杯半决赛上[以 5v5 击败 KPL 职业选手](https://www.jiemian.com/article/3371171.html)。在 1v1 模式下，职业选手 [15 场只赢 1 场，最多坚持不到 8 分钟](https://developer.aliyun.com/article/851058)。训练强度：一天等于人类 440 年。到 2021 年，绝悟在全英雄池 BO5 上全面超越 KPL 职业选手水准。没有手工编写的英雄克制表。没有脚本化的阵容编排。一个从零开始通过自我对弈学习整个游戏的模型。
-
-- **2024-2025 -- LLM Agent 重塑软件工程。** Claude、GPT、Gemini -- 在人类全部代码和推理上训练的大语言模型 -- 被部署为编程 agent。它们阅读代码库，编写实现，调试故障，团队协作。架构与之前每一个 agent 完全相同：一个训练好的模型，放入一个环境，给予感知和行动的工具。唯一的不同是它们学到的东西的规模和解决任务的通用性。
-
-每一个里程碑都指向同一个事实：**Agency -- 那个感知、推理、行动的能力 -- 是训练出来的，不是编出来的。** 但每一个 agent 同时也需要一个环境才能工作：Atari 模拟器、Dota 2 客户端、星际争霸 II 引擎、IDE 和终端。模型提供智能，环境提供行动空间。两者合在一起才是一个完整的 agent。
-
-### Agent 不是什么
-
-"Agent" 这个词已经被一整个提示词水管工产业劫持了。
-
-拖拽式工作流构建器。无代码 "AI Agent" 平台。提示词链编排库。它们共享同一个幻觉：把 LLM API 调用用 if-else 分支、节点图、硬编码路由逻辑串在一起就算是 "构建 Agent" 了。
-
-不是的。它们做出来的东西是鲁布·戈德堡机械 -- 一个过度工程化的、脆弱的过程式规则流水线，LLM 被楔在里面当一个美化了的文本补全节点。那不是 Agent。那是一个有着宏大妄想的 shell 脚本。
-
-**提示词水管工式 "Agent" 是不做模型的程序员的意淫。** 他们试图通过堆叠过程式逻辑来暴力模拟智能 -- 庞大的规则树、节点图、链式提示词瀑布流 -- 然后祈祷足够多的胶水代码能涌现出自主行为。不会的。你不可能通过工程手段编码出 agency。Agency 是学出来的，不是编出来的。
-
-那些系统从诞生之日起就已经死了：脆弱、不可扩展、根本不具备泛化能力。它们是 GOFAI（Good Old-Fashioned AI，经典符号 AI）的现代还魂 -- 几十年前就被学界抛弃的符号规则系统，现在喷了一层 LLM 的漆又登场了。换了个包装，同一条死路。
-
-### 心智转换：从 "开发 Agent" 到开发 Harness
-
-当一个人说 "我在开发 Agent" 时，他只可能是两个意思之一：
-
-**1. 训练模型。** 通过强化学习、微调、RLHF 或其他基于梯度的方法调整权重。收集任务过程数据 -- 真实领域中感知、推理、行动的实际序列 -- 用它们来塑造模型的行为。这是 DeepMind、OpenAI、腾讯 AI Lab、Anthropic 在做的事。这是最本义的 Agent 开发。
-
-**2. 构建 Harness。** 编写代码，为模型提供一个可操作的环境。这是我们大多数人在做的事，也是本仓库的核心。
-
-Harness 是 agent 在特定领域工作所需要的一切：
-
-```
-Harness = Tools + Knowledge + Observation + Action Interfaces + Permissions
-
-    Tools:          文件读写、Shell、网络、数据库、浏览器
-    Knowledge:      产品文档、领域资料、API 规范、风格指南
-    Observation:    git diff、错误日志、浏览器状态、传感器数据
-    Action:         CLI 命令、API 调用、UI 交互
-    Permissions:    沙箱隔离、审批流程、信任边界
-```
-
-模型做决策。Harness 执行。模型做推理。Harness 提供上下文。模型是驾驶者。Harness 是载具。
-
-**编程 agent 的 harness 是它的 IDE、终端和文件系统。** 农业 agent 的 harness 是传感器阵列、灌溉控制和气象数据。酒店 agent 的 harness 是预订系统、客户沟通渠道和设施管理 API。Agent -- 那个智能、那个决策者 -- 永远是模型。Harness 因领域而变。Agent 跨领域泛化。
-
-这个仓库教你造载具。编程用的载具。但设计模式可以泛化到任何领域：庄园管理、农田运营、酒店运作、工厂制造、物流调度、医疗保健、教育培训、科学研究。只要有一个任务需要被感知、推理和执行 -- agent 就需要一个 harness。
-
-### Harness 工程师到底在做什么
-
-如果你在读这个仓库，你很可能是一名 harness 工程师 -- 这是一个强大的身份。以下是你真正的工作：
-
-- **实现工具。** 给 agent 一双手。文件读写、Shell 执行、API 调用、浏览器控制、数据库查询。每个工具都是 agent 在环境中可以采取的一个行动。设计它们时要原子化、可组合、描述清晰。
-
-- **策划知识。** 给 agent 领域专长。产品文档、架构决策记录、风格指南、合规要求。按需加载（s07），不要前置塞入。Agent 应该知道有什么可用，然后自己拉取所需。
-
-- **管理上下文。** 给 agent 干净的记忆。子 agent 隔离（s06）防止噪声泄露。上下文压缩（s08）防止历史淹没。任务系统（s12）让目标持久化到单次对话之外。
-
-- **控制权限。** 给 agent 边界。沙箱化文件访问。对破坏性操作要求审批。在 agent 和外部系统之间实施信任边界。这是安全工程与 harness 工程的交汇点。
-
-- **收集任务过程数据。** Agent 在你的 harness 中执行的每一条行动序列都是训练信号。真实部署中的感知-推理-行动轨迹是微调下一代 agent 模型的原材料。你的 harness 不仅服务于 agent -- 它还可以帮助进化 agent。
-
-你不是在编写智能。你是在构建智能栖居的世界。这个世界的质量 -- agent 能看得多清楚、行动得多精准、可用知识有多丰富 -- 直接决定了智能能多有效地表达自己。
-
-**造好 Harness。Agent 会完成剩下的。**
-
-### 为什么是 Claude Code -- Harness 工程的大师课
-
-为什么这个仓库专门拆解 Claude Code？
-
-因为 Claude Code 是我们所见过的最优雅、最完整的 agent harness 实现。不是因为某个巧妙的技巧，而是因为它 *没做* 的事：它没有试图成为 agent 本身。它没有强加僵化的工作流。它没有用精心设计的决策树去替模型做判断。它给模型提供了工具、知识、上下文管理和权限边界 -- 然后让开了。
-
-把 Claude Code 剥到本质来看：
-
-```
-Claude Code = 一个 agent loop
-            + 工具 (bash, read, write, edit, glob, grep, browser...)
-            + 按需 skill 加载
-            + 上下文压缩
-            + 子 agent 派生
-            + 带依赖图的任务系统
-            + 异步邮箱的团队协调
-            + worktree 隔离的并行执行
-            + 权限治理
-```
-
-就这些。这就是全部架构。每一个组件都是 harness 机制 -- 为 agent 构建的栖居世界的一部分。Agent 本身呢？是 Claude。一个模型。由 Anthropic 在人类推理和代码的全部广度上训练而成。Harness 没有让 Claude 变聪明。Claude 本来就聪明。Harness 给了 Claude 双手、双眼和一个工作空间。
-
-这就是 Claude Code 作为教学标本的意义：**它展示了当你信任模型、把工程精力集中在 harness 上时会发生什么。** 本仓库的课程（s01-s20）逐步拆解并重组 Claude Code 架构中的 harness 机制。学完之后，你理解的不只是 Claude Code 怎么工作，而是适用于任何领域、任何 agent 的 harness 工程通用原则。
-
-启示不是 "复制 Claude Code"。启示是：**最好的 agent 产品，出自那些明白自己的工作是 harness 而非 intelligence 的工程师之手。**
+</div>
 
 ---
 
-## 愿景：用真正的 Agent 铺满宇宙
+> **为什么是这个仓库？**
+> Microsoft Agent Framework (MAF) 与 Microsoft.Extensions.AI (MEAI) 是 .NET 生态官方推出的生产级 Agent 技术栈。本仓库用 **20 个自包含的章节** 把它*全貌*拆开来讲 &mdash; 提供商无关的 Chat 抽象、中间件管道、工具调用、人机审批、工作流、A2A、MCP、评估、托管、可观测性 &mdash; 每章都能在几分钟内运行、阅读、改写。
 
-这不只关乎编程 agent。
-
-每一个人类从事复杂、多步骤、需要判断力的工作的领域，都是 agent 可以运作的领域 -- 只要有对的 harness。本仓库中的模式是通用的：
-
-```
-庄园管理 agent  = 模型 + 物业传感器 + 维护工具 + 租户通信
-农业 agent      = 模型 + 土壤/气象数据 + 灌溉控制 + 作物知识
-酒店运营 agent  = 模型 + 预订系统 + 客户渠道 + 设施 API
-医学研究 agent  = 模型 + 文献检索 + 实验仪器 + 协议文档
-制造业 agent    = 模型 + 产线传感器 + 质量控制 + 物流系统
-教育 agent      = 模型 + 课程知识 + 学生进度 + 评估工具
-```
-
-循环永远不变。工具在变。知识在变。权限在变。Agent = 模型(LLM) + 泛化的操作环境(Harness)。
-
-每一个读这个仓库的 harness 工程师都在学习远超软件工程的模式。你在学习为一个智能的、自动化的未来构建基础设施。每一个部署在真实领域的好 harness，都是 agent 能够感知、推理、行动的又一个阵地。
-
-先铺满工作室。然后是农田、医院、工厂。然后是城市。然后是星球。
-
-**Bash is all you need. Real agents are all the universe needs.**
+每个 `sNN_*` 文件夹都是一个独立的 `Program.cs` 控制台程序：没有共享库，没有隐藏魔法，直接用 MAF/MEAI NuGet 包，把概念一个个串起来。默认引擎兼容 **OpenAI 协议**，可切换到任意提供商。
 
 ---
 
-```
-                    THE AGENT PATTERN
-                    =================
+## 架构概览
 
-    User --> messages[] --> LLM --> response
-                                      |
-                            stop_reason == "tool_use"?
-                           /                          \
-                         yes                           no
-                          |                             |
-                    execute tools                    return text
-                    append results
-                    loop back -----------------> messages[]
+![Microsoft Agent Framework 架构图：应用层调用 MAF，MAF 构建在 MEAI 之上，MEAI 抽象底层各家 Provider SDK](./assets/architecture.png)
 
+**自上而下的三层可组合架构：**
 
-    这是最小循环。每个 AI Agent 都需要这个循环。
-    模型决定何时调用工具、何时停止。
-    代码只是执行模型的要求。
-    本仓库教你构建围绕这个循环的一切 --
-    让 agent 在特定领域高效工作的 harness。
-```
-
-**20 个递进式课程, 从简单循环到完整 Harness。**
-**每个课程添加一个 harness 机制。每个机制有一句格言。**
-
-> **s01** &nbsp; *"One loop & Bash is all you need"* &mdash; 一个工具 + 一个循环 = 一个 Agent
->
-> **s02** &nbsp; *"加一个工具, 只加一个 handler"* &mdash; 循环不用动, 新工具注册进 dispatch map 就行
->
-> **s03** &nbsp; *"先划边界, 再给自由"* &mdash; 先判断操作能不能做，要不要问用户
->
-> **s04** &nbsp; *"挂在循环上, 不写进循环里"* &mdash; 在工具前后留插口，不改主循环也能扩展
->
-> **s05** &nbsp; *"没有计划的 agent 走哪算哪"* &mdash; 先列步骤再动手, 完成率翻倍
->
-> **s06** &nbsp; *"大任务拆小, 每个小任务干净的上下文"* &mdash; 子 Agent 自己干活，只把结果带回来
->
-> **s07** &nbsp; *"用到时再加载, 别全塞 prompt 里"* &mdash; 技能先列目录，用到时再展开
->
-> **s08** &nbsp; *"上下文总会满, 要有办法腾地方"* &mdash; 四层压缩策略, 便宜的先跑贵的后跑
->
-> **s09** &nbsp; *"记住该记的, 忘掉该忘的"* &mdash; 三个子系统: 筛选、提取、整理
->
-> **s10** &nbsp; *"prompt 是组装出来的, 不是写死的"* &mdash; 分段 + 按需拼接
->
-> **s11** &nbsp; *"错误不是终点, 是重试的起点"* &mdash; 出错时会重试、腾空间、换路子
->
-> **s12** &nbsp; *"大目标拆成小任务, 排好序, 持久化"* &mdash; 文件持久化的任务图, 多 agent 协作的基础
->
-> **s13** &nbsp; *"慢操作丢后台, agent 继续思考"* &mdash; 后台线程跑命令, 完成后注入通知
->
-> **s14** &nbsp; *"定时触发, 不需要人推"* &mdash; 按时间自动触发任务
->
-> **s15** &nbsp; *"一个搞不定, 组队来"* &mdash; 持久化队友 + 异步邮箱
->
-> **s16** &nbsp; *"队友之间要有约定"* &mdash; 用固定的请求-回复格式沟通
->
-> **s17** &nbsp; *"队友自己看板, 有活就认领"* &mdash; 不需要领导逐个分配, 自组织
->
-> **s18** &nbsp; *"各干各的目录, 互不干扰"* &mdash; 任务管目标, worktree 管目录, 按 ID 绑定
->
-> **s19** &nbsp; *"能力不够? 插上 MCP"* &mdash; 把外部工具接进同一个工具池
->
-> **s20** &nbsp; *"机制很多，循环一个"* &mdash; 前面所有机制回到一个完整 harness
+1. **应用层** &mdash; 控制台、ASP.NET Core、后台服务、CLI 或桌面 UI。
+2. **Microsoft Agent Framework (MAF)** &mdash; 编排、工作流、多 Agent 拓扑、A2A 与 MCP。
+3. **Microsoft.Extensions.AI (MEAI)** &mdash; 统一的 `IChatClient` 抽象：中间件、工具、压缩器、评估器。
+4. **Provider SDKs** &mdash; OpenAI、Azure OpenAI、Ollama 或任意 `IChatClient` 实现。**换提供商不改业务代码**。
 
 ---
-
-## 核心模式
-
-C# 版的循环实现在 `AgentCommon/Agent/AgentHarness.cs`，是每个 `Program.cs` 最终调用的入口。循环本身始终不变。机制属于 harness。
-
-```csharp
-public async Task<LlmResponse> RunAsync(List<Message> messages, CancellationToken ct = default)
-{
-    Hooks.FireBeforeLlmCall(messages);
-    Compactor.PrepareBeforeLlm(messages);
-
-    var systemPrompt = SystemPromptProvider?.Invoke() ?? "";
-    var response = await Client.CreateMessageAsync(
-        systemPrompt, messages, Tools.AllSpecs().ToList(), ct: ct);
-    messages.Add(Message.Assistant(response.Content));
-
-    if (response.StopReason != "tool_use")
-        return response;
-
-    var results = new List<ToolResultBlock>();
-    foreach (var block in response.Content.OfType<ToolUseBlock>())
-    {
-        var output = Tools.Invoke(block.Name, block.Input);
-        results.Add(new ToolResultBlock(block.Id, output));
-    }
-    messages.Add(Message.UserToolResults(results));
-    return response;
-}
-```
-
-每个课程在这个循环之上叠加一个 harness 机制 -- 循环本身始终不变。循环属于 agent。机制属于 harness。
-
-## 版本说明
-
-本仓库目前只保留 20 章主线（根目录 `s01-s20`）。每章包含完整叙事 README、英文/日文译本、可运行的 .NET 10 C# `Program.cs` 和必要的图示，全部共享 `AgentCommon/` 类库。
-
-旧 12 章体系下的 `docs/` 目录和 `web/` 应用仍保留（内容已转为 C#，但 Next.js 应用仍读取 `docs/` 的 Markdown）。旧代码文件（`agents/`、`sNN_*/code.py`、`tests/`）已删除。
-
-## 范围说明 (重要)
-
-本仓库是一个 0->1 的 harness 工程学习项目 -- 构建围绕 agent 模型的工作环境。
-为保证学习路径清晰，仓库有意简化或省略了部分生产机制：
-
-- 完整事件 / Hook 总线 (例如 PreToolUse、SessionStart/End、ConfigChange)。
-  s12 仅提供教学用途的最小 append-only 生命周期事件流。
-- 基于规则的权限治理与信任流程
-- 会话生命周期控制 (resume/fork) 与更完整的 worktree 生命周期控制
-- 完整 MCP 运行时细节 (transport/OAuth/资源订阅/轮询)
-
-仓库中的团队 JSONL 邮箱协议是教学实现，不是对任何特定生产内部实现的声明。
 
 ## 快速开始
 
-### 20 章主线（.NET 10 / C#）
+```bash
+# 1. 克隆仓库
+git clone https://github.com/yanziyang/learn-Microsoft-Agent-Framework.git
+cd learn-Microsoft-Agent-Framework
 
-```sh
-git clone https://github.com/shareAI-lab/learn-claude-code-csharp
-cd learn-claude-code-csharp
-dotnet build                                                # 还原 + 编译整个 solution
+# 2. 配置 API Key（一次性）
+cp appsettings.example.json appsettings.json
+#    编辑 appsettings.json，把 PUT-YOUR-KEY-HERE 替换成你的 Key
+#    或直接设置环境变量：export OPENAI_API_KEY=sk-...
 
-# 配置 API key（一次性）
-cp s01_agent_loop/appsettings.example.json s01_agent_loop/appsettings.json
-# 编辑 s01_agent_loop/appsettings.json，把 PUT-YOUR-KEY-HERE 替换成你的 DeepSeek API key
-# 跑其他章节同理；也可以设环境变量 DEEPSEEK_API_KEY=sk-...
+# 3. 还原 + 编译整个解决方案
+dotnet build
 
-dotnet run --project s01_agent_loop         # 起点 — 一个循环 + bash
-dotnet run --project s08_context_compact    # 上下文压缩（复杂章）
-dotnet run --project s20_comprehensive      # 终点章: 全部机制归到一个循环
+# 4. 运行任意章节
+dotnet run --project s01_provider_agnostic   # 起点：一次调用，任意提供商
+dotnet run --project s03_agent_loop          # Agent 循环本体
+dotnet run --project s20_comprehensive       # 终章：全部机制汇总成一个程序
 ```
 
-#### 切换 LLM 引擎
+> 每一章都是独立的 &mdash; 你完全可以直接跳到 `s13_workflows` 或 `s17_mcp_integration`，不必按顺序走。
 
-默认 base URL 是 DeepSeek 的 Anthropic 兼容端点
-`https://api.deepseek.com/anthropic`，默认 model 是 `deepseek-v4-flash`。
-要换其他 Anthropic 兼容供应商，编辑 `appsettings.json`：
+---
+
+## 章节地图 &mdash; 20 课
+
+四个递进的阶段。挑一行，运行项目，看代码。
+
+### 阶段一 &middot; 基础篇 &nbsp;`s01 – s06`
+
+> Chat 客户端、中间件管道、Agent 循环、工具调用、审批、钩子。
+
+| # | 章节 | 核心概念 | 技术栈 |
+|---|---------|-------------|-------|
+| 01 | [`s01_provider_agnostic`](./s01_provider_agnostic/) | `IChatClient`、切换提供商、流式输出 | MEAI |
+| 02 | [`s02_middleware_pipeline`](./s02_middleware_pipeline/) | `DelegatingChatClient`、自定义中间件 | MEAI |
+| 03 | [`s03_agent_loop`](./s03_agent_loop/) | `ChatClientAgent`、会话、`RunAsync` / `RunStreamingAsync` | MAF |
+| 04 | [`s04_tool_use`](./s04_tool_use/) | `AIFunctionFactory.Create()`、工具分发 | MEAI |
+| 05 | [`s05_permission`](./s05_permission/) | `ApprovalRequiredAIFunction`、审批循环 | MAF |
+| 06 | [`s06_hooks`](./s06_hooks/) | 通过中间件实现工具前/后钩子 | MEAI |
+
+### 阶段二 &middot; Agent 能力篇 &nbsp;`s07 – s12`
+
+> 任务规划、Agent 组合、技能加载、上下文压缩、动态提示词、错误恢复。
+
+| # | 章节 | 核心概念 | 技术栈 |
+|---|---------|-------------|-------|
+| 07 | [`s07_planning`](./s07_planning/) | 自定义 `todo_write` 工具、状态跟踪 | Custom |
+| 08 | [`s08_agent_as_tool`](./s08_agent_as_tool/) | `AIAgent.AsAIFunction()`、嵌套组合 | MAF |
+| 09 | [`s09_skill_loading`](./s09_skill_loading/) | 两级技能注入、`SKILL.md` 目录 | Custom |
+| 10 | [`s10_context_compaction`](./s10_context_compaction/) | `MessageCountingChatReducer`、`SummarizingChatReducer` | MEAI |
+| 11 | [`s11_system_prompt`](./s11_system_prompt/) | 动态系统提示词拼装、缓存 | Custom |
+| 12 | [`s12_error_recovery`](./s12_error_recovery/) | 重试中间件、指数退避 | MEAI |
+
+### 阶段三 &middot; 编排与集成 &nbsp;`s13 – s17`
+
+> 工作流、后台任务、多 Agent 拓扑、A2A 协议、MCP 集成。
+
+| # | 章节 | 核心概念 | 技术栈 |
+|---|---------|-------------|-------|
+| 13 | [`s13_workflows`](./s13_workflows/) | `WorkflowBuilder`、Executor、Edge、Superstep | MAF |
+| 14 | [`s14_background_tasks`](./s14_background_tasks/) | `BackgroundService`、异步执行 | .NET |
+| 15 | [`s15_multi_agent_workflows`](./s15_multi_agent_workflows/) | `AgentWorkflowBuilder`、串行 / 并发 | MAF |
+| 16 | [`s16_a2a_protocol`](./s16_a2a_protocol/) | A2A 协议、`AgentCard` | MAF |
+| 17 | [`s17_mcp_integration`](./s17_mcp_integration/) | `McpClient`、`McpClientTool`、内存版服务器 | MCP |
+
+### 阶段四 &middot; 生产与综合 &nbsp;`s18 – s20`
+
+> 评估、托管与可观测性，以及把所有机制汇成一个完整参考架构。
+
+| # | 章节 | 核心概念 | 技术栈 |
+|---|---------|-------------|-------|
+| 18 | [`s18_evaluation`](./s18_evaluation/) | `CoherenceEvaluator`、`RelevanceEvaluator` | MEAI |
+| 19 | [`s19_hosting_observability`](./s19_hosting_observability/) | ASP.NET Core 托管、OpenTelemetry | MAF + OTel |
+| 20 | [`s20_comprehensive`](./s20_comprehensive/) | s01–s19 全部机制汇总到一个程序 | All |
+
+---
+
+## 框架版本
+
+| 包 | 版本 | 状态 |
+|---------|---------|--------|
+| `Microsoft.Extensions.AI` | **10.7.0** | 正式版 |
+| `Microsoft.Agents.AI` | **1.10.0** | 正式版 |
+| `Microsoft.Agents.AI.Workflows` | **1.10.0** | 正式版 |
+| `Microsoft.Agents.AI.Hosting` | **1.10.0-preview** | 预览版 |
+| `ModelContextProtocol` | **1.4.0** | 正式版 |
+
+NuGet 版本统一在 [`Directory.Packages.props`](./Directory.Packages.props) 集中管理。所有项目均目标 `net10.0`，并通过 [`Directory.Build.props`](./Directory.Build.props) 共享 `<LangVersion>latest</LangVersion>`、`<Nullable>enable</Nullable>`、`<ImplicitUsings>enable</ImplicitUsings>` 等配置。
+
+---
+
+## 配置说明
+
+每一章都从 `appsettings.json` 或环境变量读取配置 &mdash; **同样的结构，同样的解析顺序**。
 
 ```json
 {
-  "modelId": "claude-sonnet-4-6",
-  "baseUrl": "https://api.anthropic.com",
-  "apiKey": "sk-ant-..."
+  "baseUrl": "https://api.openai.com/v1",
+  "modelId": "gpt-4o-mini",
+  "apiKey":  "PUT-YOUR-KEY-HERE"
 }
 ```
 
-### Web 平台
+**Key 解析顺序：**
+1. `appsettings.json` 里的 `apiKey`（只要不是默认的 `PUT-YOUR-KEY-HERE`）
+2. `OPENAI_API_KEY` 环境变量
 
-当前 Web 平台仍读取 `docs/` 中的旧 12 章内容（已转为 C#）。新版 20 章请直接阅读根目录 `s01-s20`。
+> **按章覆盖：** 把 `sNN_*/appsettings.example.json` 复制为 `sNN_*/appsettings.json` 再编辑。所有 `s*/` 下的 `appsettings.json` 都已在 `.gitignore` 里 &mdash; **千万不要提交它**。
 
-```sh
-cd web && npm install && npm run dev   # http://localhost:3000
-```
+默认引擎兼容 OpenAI 协议，但 `baseUrl` 可以指向任意 OpenAI 兼容端点（Azure OpenAI、Ollama、vLLM、llama.cpp server、DeepSeek 等）。
 
-## 学习路径
-
-主线：能动手 → 能做复杂任务 → 能记住和恢复 → 能长期运行 → 能协作 → 能扩展并合体
-
-```mermaid
-flowchart TD
-    %% 统一定义卡片样式：加入 text-align:left 保证列表不会居中乱飘
-    classDef stage1 fill:#E3F2FD,stroke:#1976D2,stroke-width:2px,color:#0D47A1,rx:12,ry:12,text-align:left
-    classDef stage2 fill:#E8F5E9,stroke:#388E3C,stroke-width:2px,color:#1B5E20,rx:12,ry:12,text-align:left
-    classDef stage3 fill:#FFF3E0,stroke:#F57C00,stroke-width:2px,color:#E65100,rx:12,ry:12,text-align:left
-    classDef stage4 fill:#FCE4EC,stroke:#C2185b,stroke-width:2px,color:#880E4F,rx:12,ry:12,text-align:left
-    classDef stage5 fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px,color:#4A148C,rx:12,ry:12,text-align:left
-    classDef stage6 fill:#E0F7FA,stroke:#0097A7,stroke-width:2px,color:#006064,rx:12,ry:12,text-align:left
-    
-    %% 背景框样式
-    classDef groupBox fill:#F8F9FA,stroke:#CED4DA,stroke-width:2px,stroke-dasharray: 5 5,rx:15,ry:15,color:#495057
-    
-    %% 第一层：1-3阶段
-    subgraph Phase1 ["🌱 阶段 1-3：基础能力构建（从简单到复杂）"]
-        direction LR
-        S1["<b>第一阶段：让 Agent 能动手</b><br/>━━━━━━━━━━━━━<br/><b>s01 Agent Loop</b><br/>└─ 一个循环 + bash<br/><br/><b>s02 Tool Use</b><br/>└─ 单个到多个工具<br/><br/><b>s03 Permission</b><br/>└─ 判断能不能做<br/><br/><b>s04 Hooks</b><br/>└─ 工具前后留扩展插口"]:::stage1
-
-        S2["<b>第二阶段：做复杂任务</b><br/>━━━━━━━━━━━━━<br/><b>s05 TodoWrite</b><br/>└─ 先列计划，再执行<br/><br/><b>s06 Subagent</b><br/>└─ 子节点干活带回结果<br/><br/><b>s08 Context Compact</b><br/>└─ 长下文腾空间"]:::stage2
-
-        S3["<b>第三阶段：记住和恢复</b><br/>━━━━━━━━━━━━━<br/><b>s09 Memory</b><br/>└─ 该记记，该忘忘<br/><br/><b>s10 System Prompt</b><br/>└─ 运行时组装<br/><br/><b>s11 Error Recovery</b><br/>└─ 重试换路子"]:::stage3
-
-        S1 ==> S2 ==> S3
-    end
-
-    %% 第二层：4-6阶段
-    subgraph Phase2 ["🚀 阶段 4-6：高阶能力进化（长期、协作与融合）"]
-        direction LR
-        S4["<b>第四阶段：让任务长期运行</b><br/>━━━━━━━━━━━━━<br/><b>s12 Task System</b><br/>└─ 任务落盘记依赖<br/><br/><b>s13 Background Tasks</b><br/>└─ 慢操作丢后台<br/><br/><b>s14 Cron Scheduler</b><br/>└─ 按时自动触发"]:::stage4
-
-        S5["<b>第五阶段：让多个 Agent 协作</b><br/>━━━━━━━━━━━━━<br/><b>s15 Agent Teams</b><br/>└─ 队友 + 邮箱通信<br/><br/><b>s16 Team Protocols</b><br/>└─ 固定收发格式<br/><br/><b>s17 Autonomous Agents</b><br/>└─ 自己看板认领活<br/><br/><b>s18 Worktree Isolation</b><br/>└─ 隔离目录"]:::stage5
-
-        S6["<b>第六阶段：接外部能力合体</b><br/>━━━━━━━━━━━━━<br/><b>s07 Skill Loading</b><br/>└─ 技能按需展开<br/><br/><b>s19 MCP Plugin</b><br/>└─ 外部接进工具池<br/><br/><b>s20 Comprehensive Agent</b><br/>└─ 全机制回单循环"]:::stage6
-
-        S4 ==> S5 ==> S6
-    end
-
-    %% 将两个模块连接起来，形成 Z 字形阅读流
-    Phase1 ===> Phase2
-
-    %% 应用背景样式
-    class Phase1,Phase2 groupBox
-```
-
-## 全部章节
-
-| 章节 | 主题 | 关键概念 |
-|---|---|---|
-| [s01](./s01_agent_loop/) | Agent Loop | `messages` / `while True` / `stop_reason` |
-| [s02](./s02_tool_use/) | Tool Use | `TOOL_HANDLERS` / dispatch map / 并发 |
-| [s03](./s03_permission/) | Permission | `PermissionRule` / 审批管线 |
-| [s04](./s04_hooks/) | Hooks | `PreToolUse` / `PostToolUse` / 扩展点 |
-| [s05](./s05_todo_write/) | TodoWrite | `TodoItem` / 先计划后执行 |
-| [s06](./s06_subagent/) | Subagent | `fresh messages[]` / 上下文隔离 |
-| [s07](./s07_skill_loading/) | Skill Loading | `SkillManifest` / 按需注入 |
-| [s08](./s08_context_compact/) | Context Compact | snip / micro / budget / auto 四层压缩 |
-| [s09](./s09_memory/) | Memory | selection / extraction / consolidation |
-| [s10](./s10_system_prompt/) | System Prompt | 运行时组装 / 分段拼接 |
-| [s11](./s11_error_recovery/) | Error Recovery | token 升级 / fallback 模型 / 重试策略 |
-| [s12](./s12_task_system/) | Task System | `TaskRecord` / `blockedBy` / 磁盘持久化 |
-| [s13](./s13_background_tasks/) | Background Tasks | 线程执行 / 通知队列 |
-| [s14](./s14_cron_scheduler/) | Cron Scheduler | 持久化调度 / 会话级触发 |
-| [s15](./s15_agent_teams/) | Agent Teams | `MessageBus` / 收件箱 / 权限冒泡 |
-| [s16](./s16_team_protocols/) | Team Protocols | 关机握手 / 计划审批 |
-| [s17](./s17_autonomous_agents/) | Autonomous Agents | 空闲循环 / 自动认领 |
-| [s18](./s18_worktree_isolation/) | Worktree Isolation | `WorktreeRecord` / 任务-目录绑定 |
-| [s19](./s19_mcp_plugin/) | MCP Plugin | 多传输 / 通道路由 / 工具池组装 |
-| [s20](./s20_comprehensive/) | Comprehensive Agent | 全部机制归到一个循环 |
+---
 
 ## 项目结构
 
+```text
+learn-Microsoft-Agent-Framework/
+├── s01_provider_agnostic/      # IChatClient 抽象
+├── s02_middleware_pipeline/    # DelegatingChatClient 中间件
+├── s03_agent_loop/             # ChatClientAgent
+├── s04_tool_use/               # AIFunctionFactory
+├── s05_permission/             # ApprovalRequiredAIFunction
+├── s06_hooks/                  # 中间件钩子
+├── s07_planning/               # todo_write 工具
+├── s08_agent_as_tool/          # Agent 组合
+├── s09_skill_loading/          # SKILL.md 目录加载
+├── s10_context_compaction/     # 上下文压缩
+├── s11_system_prompt/          # 动态提示词
+├── s12_error_recovery/         # 重试中间件
+├── s13_workflows/              # MAF 工作流
+├── s14_background_tasks/       # 后台执行
+├── s15_multi_agent_workflows/  # 多 Agent 编排
+├── s16_a2a_protocol/           # A2A 协议
+├── s17_mcp_integration/        # MCP 集成
+├── s18_evaluation/             # 质量评估
+├── s19_hosting_observability/  # ASP.NET Core + OpenTelemetry
+├── s20_comprehensive/          # 终章：全部机制汇总
+│
+├── assets/                     # Hero、架构、学习路径图
+├── skills/                     # s09 使用的 SKILL.md 资源
+├── docs/en/                    # 英文文档
+├── docs/zh/                    # 中文文档
+├── web/                        # Next.js 文档站点
+│
+├── Directory.Build.props       # 共享 MSBuild 配置
+├── Directory.Packages.props    # NuGet 版本集中管理
+└── LearnClaudeCode.slnx        # 解决方案文件
 ```
-learn-claude-code/
-  s01_agent_loop/          # 每章一个文件夹
-    README.md              #   中文源文档（完整叙事）
-    README.en.md           #   英文译本
-    README.ja.md           #   日文译本
-    Program.cs             #   独立可运行代码（.NET 10 C#）
-    images/                #   SVG 流程图
-  s02_tool_use/
-  ...
-  s19_mcp_plugin/
-  s20_comprehensive/       # 终点章
-  AgentCommon/             # 共享 .NET 10 类库（LLM 客户端、harness、hooks、...）
-    AgentCommon.csproj
-    Config/  Llm/  Tools/  Hooks/  Permissions/  Compact/  Memory/
-    Skills/  Tasks/  Background/  Cron/  Teams/  Subagent/  Util/
-  appsettings.example.json # 模板，纳入 git
-  Directory.Build.props    # 共享 MSBuild 配置
-  LearnClaudeCode.slnx     # solution 文件（21 个 project）
-  docs/                    # 旧 12 章文档（web 应用仍读取）
-  skills/                  # s07 使用的 skill 文件
-  web/                     # Next.js 应用，渲染 docs/ 内容
-```
-
-## 学完之后 -- 从理解到落地
-
-20 个课程走完, 你已经从内到外理解了 harness 工程的运作原理。两种方式把知识变成产品:
-
-### Kode Agent CLI -- 开源 Coding Agent CLI
-
-> `npm i -g @shareai-lab/kode`
-
-支持 Skill & LSP, 适配 Windows, 可接 GLM / MiniMax / DeepSeek 等开放模型。装完即用。
-
-GitHub: **[shareAI-lab/Kode-cli](https://github.com/shareAI-lab/Kode-cli)**
-
-### Kode Agent SDK -- 把 Agent 能力嵌入你的应用
-
-官方 Claude Code Agent SDK 底层与完整 CLI 进程通信 -- 每个并发用户 = 一个终端进程。Kode SDK 是独立库, 无 per-user 进程开销, 可嵌入后端、浏览器插件、嵌入式设备等任意运行时。
-
-GitHub: **[shareAI-lab/Kode-agent-sdk](https://github.com/shareAI-lab/Kode-agent-sdk)**
 
 ---
 
-## 姊妹教程: 从*被动临时会话*到*主动常驻助手*
+## 学习路径
 
-本仓库教的 harness 属于 **用完即走** 型 -- 开终端、给 agent 任务、做完关掉, 下次重开是全新会话。Claude Code 就是这种模式。
+![20 章节学习路径，按四个递进阶段分组](./assets/learning-path.png)
 
-但 [OpenClaw](https://github.com/openclaw/openclaw) 证明了另一种可能: 在同样的 agent core 之上, 加两个 harness 机制就能让 agent 从 "踹一下动一下" 变成 "自己隔 30 秒醒一次找活干":
+**推荐路线：** 从 **阶段一** 开始，把 `IChatClient`、中间件、Agent 循环这三块内化。进入 **阶段二** 加上规划、组合、容错。需要编排、多 Agent 或外部工具服务器时再读 **阶段三**。最后用 **阶段四** 收尾：评估、托管、以及一份参考实现。
 
-- **心跳 (Heartbeat)** -- 每 30 秒 harness 给 agent 发一条消息, 让它检查有没有事可做。没事就继续睡, 有事立刻行动。
-- **定时任务 (Cron)** -- agent 可以给自己安排未来要做的事, 到点自动执行。
+> 已经熟悉 MEAI？快速浏览 s01-s02，直接跳到 `s03_agent_loop`。想先看个总览？跑一遍 `s20_comprehensive`，所有机制会在同一个程序里依次亮起来。
 
-再加上 IM 多通道路由 (WhatsApp/Telegram/Slack/Discord 等 13+ 平台)、不清空的上下文记忆、Soul 人格系统, agent 就从一个临时工具变成了始终在线的个人 AI 助手。
+---
 
-**[claw0](https://github.com/shareAI-lab/claw0)** 是我们的姊妹教学仓库, 从零拆解这些 harness 机制:
+## 验证命令
 
+仓库里没有 `dotnet test` 项目，也没有配置 lint 工具 &mdash; `dotnet build` 是唯一的静态检查。
+
+```bash
+dotnet build                                    # 编译整个解决方案
+dotnet run --project s03_agent_loop             # 跑单个章节
+dotnet run --project s19_hosting_observability  # ASP.NET Core 托管 + OTel
+cd web && npm install && npm run dev             # 文档站点跑在 http://localhost:3000
 ```
-claw agent = agent core + heartbeat + cron + IM chat + memory + soul
-```
 
-```
-learn-claude-code                   claw0
-(agent harness 内核:                 (主动式常驻 harness:
- 循环、工具、规划、                    心跳、定时任务、IM 通道、
- 团队、worktree 隔离)                  记忆、Soul 人格)
-```
+---
 
 ## 许可证
 
-MIT
+[MIT](./LICENSE) &copy; 各位贡献者。欢迎 PR &mdash; 发现拼写错误、过时 API，或者觉得某一章可以写得更好，请直接开 Issue。
 
----
+<div align="center">
 
-**Agency 来自模型。Harness 让 agency 落地。造好 Harness，模型会完成剩下的。**
+**构建 Agent，组合中间件，自信交付。**
 
-**Bash is all you need. Real agents are all the universe needs.**
+</div>

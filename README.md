@@ -1,194 +1,229 @@
-[English](./README.md) | [中文](./README-zh.md)
+<div align="center">
 
-# Microsoft Agent Framework (MAF) and Microsoft.Extensions.AI Hands-on Guide
+<img src="./assets/hero.png" alt="Microsoft Agent Framework Hands-on Guide" width="100%" />
 
-> A 20-lesson hands-on tutorial for building AI agents with Microsoft
-> Agent Framework (MAF) and Microsoft.Extensions.AI (MEAI) in .NET 10 / C#.
-> Each chapter ships as a self-contained `Program.cs` console app using
-> MAF/MEAI NuGet packages directly. The default engine is **OpenAI-compatible**
-> (configurable to any provider).
+# Microsoft Agent Framework &nbsp;·&nbsp; Hands-on Guide
+
+**A 20-lesson, production-grade tour of building AI agents in .NET 10 / C#**
+*From a single `IChatClient` call to a fully observable, multi-agent fleet.*
+
+[![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
+[![C#](https://img.shields.io/badge/C%23-latest-239120?style=flat-square&logo=csharp&logoColor=white)](https://learn.microsoft.com/dotnet/csharp/)
+[![MAF](https://img.shields.io/badge/Microsoft.Agents.AI-v1.10.0-7B61FF?style=flat-square)](https://www.nuget.org/packages/Microsoft.Agents.AI)
+[![MEAI](https://img.shields.io/badge/Microsoft.Extensions.AI-v10.7.0-0078D4?style=flat-square)](https://www.nuget.org/packages/Microsoft.Extensions.AI)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](./LICENSE)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](https://github.com/yanziyang/learn-Microsoft-Agent-Framework/pulls)
+
+**[English](./README.md)** &nbsp;·&nbsp; [中文](./README-zh.md)
+
+[Quick&nbsp;Start](#quick-start) &nbsp;·&nbsp; [Architecture](#architecture-overview) &nbsp;·&nbsp; [Chapter&nbsp;Map](#chapter-map--20-lessons) &nbsp;·&nbsp; [Learning&nbsp;Path](#learning-path) &nbsp;·&nbsp; [Configuration](#configuration)
+
+</div>
+
+---
+
+> **Why this repo?**
+> Microsoft Agent Framework (MAF) and Microsoft.Extensions.AI (MEAI) are the official .NET stack for building production AI agents. This guide unpacks the *whole* surface &mdash; provider-agnostic chat, middleware pipelines, tool calling, human-in-the-loop, workflows, A2A, MCP, evaluation, hosting, telemetry &mdash; through **20 self-contained chapters** you can run, read, and remix in minutes.
+
+Each `sNN_*` folder is a standalone `Program.cs` console app. No shared library, no hidden magic &mdash; just MAF/MEAI NuGet packages, wired together one concept at a time. The default engine is **OpenAI-compatible**, configurable to any provider.
+
+---
 
 ## Architecture Overview
 
-```mermaid
-graph TD
-    subgraph "Microsoft Agent Framework (MAF) v1.10.0"
-        A[AIAgent] --> B[ChatClientAgent]
-        B --> C[WorkflowBuilder]
-        C --> D[AgentWorkflowBuilder]
-        D --> E[Sequential / Concurrent / Handoff]
-        A --> F[.AsAIFunction]
-        A --> G[A2A Protocol]
-        A --> H[MCP Integration]
-    end
+![Microsoft Agent Framework architecture: Your Application talks to MAF, which composes on top of MEAI, which abstracts provider SDKs](./assets/architecture.png)
 
-    subgraph "Microsoft.Extensions.AI (MEAI) v10.7.0"
-        I[IChatClient] --> J[ChatClientBuilder]
-        J --> K[DelegatingChatClient]
-        K --> L[FunctionInvokingChatClient]
-        K --> M[ReducingChatClient]
-        K --> N[OpenTelemetryChatClient]
-        I --> O[AIFunctionFactory]
-        I --> P[ApprovalRequiredAIFunction]
-        I --> Q[Evaluation Framework]
-    end
+**Three composable layers, top to bottom:**
 
-    subgraph "Provider SDKs"
-        R[OpenAI] --> I
-        S[Azure OpenAI] --> I
-        T[Ollama] --> I
-        U[Any IChatClient] --> I
-    end
+1. **Your Application** &mdash; console, ASP.NET Core, background service, CLI, or desktop UI.
+2. **Microsoft Agent Framework (MAF)** &mdash; orchestration, workflows, multi-agent topologies, A2A &amp; MCP.
+3. **Microsoft.Extensions.AI (MEAI)** &mdash; the unified `IChatClient` abstraction: middleware, tools, reducers, evaluation.
+4. **Provider SDKs** &mdash; OpenAI, Azure OpenAI, Ollama, or any `IChatClient`. Swap without touching agent code.
 
-    B --> I
-```
+---
 
 ## Quick Start
 
 ```bash
-# 1. Clone and configure
-cp appsettings.example.json appsettings.json
-# Edit appsettings.json with your API key
+# 1. Clone the repo
+git clone https://github.com/yanziyang/learn-Microsoft-Agent-Framework.git
+cd learn-Microsoft-Agent-Framework
 
-# 2. Build everything
+# 2. Configure your API key (once)
+cp appsettings.example.json appsettings.json
+#    then edit appsettings.json and replace PUT-YOUR-KEY-HERE
+#    or just export OPENAI_API_KEY=sk-...
+
+# 3. Build everything
 dotnet build
 
-# 3. Run any chapter
-dotnet run --project s01_provider_agnostic
-dotnet run --project s03_agent_loop
-dotnet run --project s20_comprehensive
+# 4. Run any chapter
+dotnet run --project s01_provider_agnostic   # start here: one call, any provider
+dotnet run --project s03_agent_loop          # the agent loop itself
+dotnet run --project s20_comprehensive       # the capstone: everything wired together
 ```
 
-## Chapter Map (20 Lessons)
+> Each chapter is independent &mdash; you can jump straight into `s13_workflows` or `s17_mcp_integration` without doing the earlier ones.
 
-### Foundations (s01–s06)
+---
 
-| # | Chapter | Key Concept | Framework |
-|---|---------|-------------|-----------|
-| 01 | `s01_provider_agnostic` | `IChatClient`, provider switching, streaming | MEAI |
-| 02 | `s02_middleware_pipeline` | `DelegatingChatClient`, custom middleware | MEAI |
-| 03 | `s03_agent_loop` | `ChatClientAgent`, sessions, `RunAsync`/`RunStreamingAsync` | MAF |
-| 04 | `s04_tool_use` | `AIFunctionFactory.Create()`, tool dispatch | MEAI |
-| 05 | `s05_permission` | `ApprovalRequiredAIFunction`, approval loop | MAF |
-| 06 | `s06_hooks` | Pre/post tool hooks via middleware | MEAI |
+## Chapter Map &mdash; 20 Lessons
 
-### Agent Features (s07–s12)
+Four progressive tracks. Pick a row, run the project, read the code.
 
-| # | Chapter | Key Concept | Framework |
-|---|---------|-------------|-----------|
-| 07 | `s07_planning` | Custom `todo_write` tool, state tracking | Custom |
-| 08 | `s08_agent_as_tool` | `AIAgent.AsAIFunction()`, nested composition | MAF |
-| 09 | `s09_skill_loading` | Two-level skill injection, `SKILL.md` catalog | Custom |
-| 10 | `s10_context_compaction` | `MessageCountingChatReducer`, `SummarizingChatReducer` | MEAI |
-| 11 | `s11_system_prompt` | Dynamic system prompt assembly, caching | Custom |
-| 12 | `s12_error_recovery` | Retry middleware, exponential backoff | MEAI |
+### Track 1 &middot; Foundations &nbsp;`s01 – s06`
 
-### Orchestration & Integration (s13–s17)
+> The chat client, middleware pipeline, agent loop, tools, approval, and hooks.
 
-| # | Chapter | Key Concept | Framework |
-|---|---------|-------------|-----------|
-| 13 | `s13_workflows` | `WorkflowBuilder`, executors, edges, supersteps | MAF |
-| 14 | `s14_background_tasks` | `BackgroundService`, async execution | .NET |
-| 15 | `s15_multi_agent_workflows` | `AgentWorkflowBuilder`, sequential/concurrent | MAF |
-| 16 | `s16_a2a_protocol` | A2A protocol, `AgentCard` | MAF |
-| 17 | `s17_mcp_integration` | `McpClient`, `McpClientTool`, in-memory server | MCP |
+| # | Chapter | Key Concept | Stack |
+|---|---------|-------------|-------|
+| 01 | [`s01_provider_agnostic`](./s01_provider_agnostic/) | `IChatClient`, provider switching, streaming | MEAI |
+| 02 | [`s02_middleware_pipeline`](./s02_middleware_pipeline/) | `DelegatingChatClient`, custom middleware | MEAI |
+| 03 | [`s03_agent_loop`](./s03_agent_loop/) | `ChatClientAgent`, sessions, `RunAsync` / `RunStreamingAsync` | MAF |
+| 04 | [`s04_tool_use`](./s04_tool_use/) | `AIFunctionFactory.Create()`, tool dispatch | MEAI |
+| 05 | [`s05_permission`](./s05_permission/) | `ApprovalRequiredAIFunction`, approval loop | MAF |
+| 06 | [`s06_hooks`](./s06_hooks/) | Pre/post tool hooks via middleware | MEAI |
 
-### Production & Capstone (s18–s20)
+### Track 2 &middot; Agent Features &nbsp;`s07 – s12`
 
-| # | Chapter | Key Concept | Framework |
-|---|---------|-------------|-----------|
-| 18 | `s18_evaluation` | `CoherenceEvaluator`, `RelevanceEvaluator` | MEAI |
-| 19 | `s19_hosting_observability` | ASP.NET Core hosting, OpenTelemetry | MAF + OTel |
-| 20 | `s20_comprehensive` | All mechanisms from s01–s19 wired together | All |
+> Planning, composition, skills, compaction, dynamic prompts, error recovery.
+
+| # | Chapter | Key Concept | Stack |
+|---|---------|-------------|-------|
+| 07 | [`s07_planning`](./s07_planning/) | Custom `todo_write` tool, state tracking | Custom |
+| 08 | [`s08_agent_as_tool`](./s08_agent_as_tool/) | `AIAgent.AsAIFunction()`, nested composition | MAF |
+| 09 | [`s09_skill_loading`](./s09_skill_loading/) | Two-level skill injection, `SKILL.md` catalog | Custom |
+| 10 | [`s10_context_compaction`](./s10_context_compaction/) | `MessageCountingChatReducer`, `SummarizingChatReducer` | MEAI |
+| 11 | [`s11_system_prompt`](./s11_system_prompt/) | Dynamic system prompt assembly, caching | Custom |
+| 12 | [`s12_error_recovery`](./s12_error_recovery/) | Retry middleware, exponential backoff | MEAI |
+
+### Track 3 &middot; Orchestration &amp; Integration &nbsp;`s13 – s17`
+
+> Workflows, background tasks, multi-agent topologies, A2A protocol, MCP.
+
+| # | Chapter | Key Concept | Stack |
+|---|---------|-------------|-------|
+| 13 | [`s13_workflows`](./s13_workflows/) | `WorkflowBuilder`, executors, edges, supersteps | MAF |
+| 14 | [`s14_background_tasks`](./s14_background_tasks/) | `BackgroundService`, async execution | .NET |
+| 15 | [`s15_multi_agent_workflows`](./s15_multi_agent_workflows/) | `AgentWorkflowBuilder`, sequential / concurrent | MAF |
+| 16 | [`s16_a2a_protocol`](./s16_a2a_protocol/) | A2A protocol, `AgentCard` | MAF |
+| 17 | [`s17_mcp_integration`](./s17_mcp_integration/) | `McpClient`, `McpClientTool`, in-memory server | MCP |
+
+### Track 4 &middot; Production &amp; Capstone &nbsp;`s18 – s20`
+
+> Evaluation, hosting + observability, and a comprehensive system bringing every piece together.
+
+| # | Chapter | Key Concept | Stack |
+|---|---------|-------------|-------|
+| 18 | [`s18_evaluation`](./s18_evaluation/) | `CoherenceEvaluator`, `RelevanceEvaluator` | MEAI |
+| 19 | [`s19_hosting_observability`](./s19_hosting_observability/) | ASP.NET Core hosting, OpenTelemetry | MAF + OTel |
+| 20 | [`s20_comprehensive`](./s20_comprehensive/) | All mechanisms from s01–s19 wired together | All |
+
+---
 
 ## Framework Versions
 
 | Package | Version | Status |
 |---------|---------|--------|
-| `Microsoft.Extensions.AI` | 10.7.0 | GA |
-| `Microsoft.Agents.AI` | 1.10.0 | GA |
-| `Microsoft.Agents.AI.Workflows` | 1.10.0 | GA |
-| `Microsoft.Agents.AI.Hosting` | 1.10.0-preview | Preview |
-| `ModelContextProtocol` | 1.4.0 | GA |
+| `Microsoft.Extensions.AI` | **10.7.0** | GA |
+| `Microsoft.Agents.AI` | **1.10.0** | GA |
+| `Microsoft.Agents.AI.Workflows` | **1.10.0** | GA |
+| `Microsoft.Agents.AI.Hosting` | **1.10.0-preview** | Preview |
+| `ModelContextProtocol` | **1.4.0** | GA |
+
+NuGet versions are managed centrally in [`Directory.Packages.props`](./Directory.Packages.props). All projects target `net10.0` and share the same `<LangVersion>latest</LangVersion>`, `<Nullable>enable</Nullable>`, `<ImplicitUsings>enable</ImplicitUsings>` settings via [`Directory.Build.props`](./Directory.Build.props).
+
+---
 
 ## Configuration
 
-Each chapter reads config from `appsettings.json` or environment variables:
+Every chapter reads from `appsettings.json` or environment variables &mdash; same shape, same resolution order.
 
 ```json
 {
   "baseUrl": "https://api.openai.com/v1",
   "modelId": "gpt-4o-mini",
-  "apiKey": "PUT-YOUR-KEY-HERE"
+  "apiKey":  "PUT-YOUR-KEY-HERE"
 }
 ```
 
-Key resolution order:
+**Key resolution order:**
 1. `apiKey` in `appsettings.json` (anything other than `PUT-YOUR-KEY-HERE`)
 2. `OPENAI_API_KEY` environment variable
 
-Per-chapter: copy `sNN_*/appsettings.example.json` to `sNN_*/appsettings.json` and edit.
+> **Per-chapter override:** copy `sNN_*/appsettings.example.json` to `sNN_*/appsettings.json` and edit. The `appsettings.json` file is gitignored at every `s*/` level &mdash; **never commit it**.
+
+The default engine is OpenAI-compatible, but `baseUrl` lets you point at any OpenAI-compatible endpoint (Azure OpenAI, Ollama, vLLM, llama.cpp server, DeepSeek, etc.).
+
+---
 
 ## Project Structure
 
+```text
+learn-Microsoft-Agent-Framework/
+├── s01_provider_agnostic/      # IChatClient abstraction
+├── s02_middleware_pipeline/    # DelegatingChatClient middleware
+├── s03_agent_loop/             # ChatClientAgent
+├── s04_tool_use/               # AIFunctionFactory
+├── s05_permission/             # ApprovalRequiredAIFunction
+├── s06_hooks/                  # Middleware hooks
+├── s07_planning/               # todo_write tool
+├── s08_agent_as_tool/          # Agent composition
+├── s09_skill_loading/          # SKILL.md catalog
+├── s10_context_compaction/     # Chat reducers
+├── s11_system_prompt/          # Dynamic prompts
+├── s12_error_recovery/         # Retry middleware
+├── s13_workflows/              # MAF workflows
+├── s14_background_tasks/       # Background execution
+├── s15_multi_agent_workflows/  # Multi-agent orchestration
+├── s16_a2a_protocol/           # A2A protocol
+├── s17_mcp_integration/        # MCP integration
+├── s18_evaluation/             # Quality evaluation
+├── s19_hosting_observability/  # ASP.NET Core + OpenTelemetry
+├── s20_comprehensive/          # Capstone: everything together
+│
+├── assets/                     # Hero, architecture, learning-path images
+├── skills/                     # SKILL.md assets consumed by s09
+├── docs/en/                    # English documentation
+├── docs/zh/                    # Chinese documentation
+├── web/                        # Next.js documentation site
+│
+├── Directory.Build.props       # Shared MSBuild properties
+├── Directory.Packages.props    # Central NuGet version management
+└── LearnClaudeCode.slnx        # Solution file
 ```
-├── s01_provider_agnostic/     # IChatClient abstraction
-├── s02_middleware_pipeline/   # DelegatingChatClient middleware
-├── s03_agent_loop/            # ChatClientAgent
-├── s04_tool_use/              # AIFunctionFactory
-├── s05_permission/            # ApprovalRequiredAIFunction
-├── s06_hooks/                 # Middleware hooks
-├── s07_planning/              # TodoWrite tool
-├── s08_agent_as_tool/         # Agent composition
-├── s09_skill_loading/         # Skill loading
-├── s10_context_compaction/    # Chat reducers
-├── s11_system_prompt/         # Dynamic prompts
-├── s12_error_recovery/        # Retry middleware
-├── s13_workflows/             # MAF workflows
-├── s14_background_tasks/      # Background execution
-├── s15_multi_agent_workflows/ # Multi-agent orchestration
-├── s16_a2a_protocol/          # A2A protocol
-├── s17_mcp_integration/       # MCP integration
-├── s18_evaluation/            # Quality evaluation
-├── s19_hosting_observability/ # ASP.NET Core + OpenTelemetry
-├── s20_comprehensive/         # All features combined
-├── skills/                    # SKILL.md assets for s09
-├── docs/en/                   # English documentation
-├── docs/zh/                   # Chinese documentation
-├── web/                       # Next.js documentation site
-├── Directory.Build.props      # Shared MSBuild properties
-├── Directory.Packages.props   # Central NuGet version management
-└── LearnClaudeCode.slnx       # Solution file
-```
+
+---
 
 ## Learning Path
 
-```mermaid
-graph LR
-    A[s01 Provider Agnostic] --> B[s02 Middleware]
-    B --> C[s03 Agent Loop]
-    C --> D[s04 Tool Use]
-    D --> E[s05 Permission]
-    E --> F[s06 Hooks]
-    F --> G[s07 Planning]
-    G --> H[s08 Agent-as-Tool]
-    H --> I[s09 Skills]
-    I --> J[s10 Compaction]
-    J --> K[s11 System Prompt]
-    K --> L[s12 Error Recovery]
-    L --> M[s13 Workflows]
-    M --> N[s14 Background Tasks]
-    N --> O[s15 Multi-Agent]
-    O --> P[s16 A2A Protocol]
-    P --> Q[s17 MCP Integration]
-    Q --> R[s18 Evaluation]
-    R --> S[s19 Hosting & Observability]
-    S --> T[s20 Comprehensive]
+![Learning path across 20 chapters, grouped into four progressive tracks](./assets/learning-path.png)
 
-    style A fill:#e1f5fe
-    style C fill:#e1f5fe
-    style M fill:#fff3e0
-    style T fill:#e8f5e9
+**Suggested route:** start with **Track 1** to internalize `IChatClient`, middleware, and the agent loop. Move through **Track 2** to add planning, composition, and resilience. Use **Track 3** when you need orchestration, multi-agent or external tool servers. Cap off with **Track 4** for evaluation, hosting, and a reference architecture.
+
+> Already comfortable with MEAI? Skim s01-s02 and jump to `s03_agent_loop`. Want a tour first? Run `s20_comprehensive` to see every mechanism light up in a single program.
+
+---
+
+## Verification Commands
+
+There is no `dotnet test` project and no linter is configured &mdash; `dotnet build` is the canonical static check.
+
+```bash
+dotnet build                                  # build the full solution
+dotnet run --project s03_agent_loop           # run a single chapter
+dotnet run --project s19_hosting_observability  # ASP.NET Core hosting + OTel
+cd web && npm install && npm run dev           # docs renderer on http://localhost:3000
 ```
 
+---
 
+## License
+
+[MIT](./LICENSE) &copy; contributors. PRs welcome &mdash; open an issue if you spot a typo, an outdated API, or a chapter that could use more love.
+
+<div align="center">
+
+**Build agents. Compose middleware. Ship with confidence.**
+
+</div>
