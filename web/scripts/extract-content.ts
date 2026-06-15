@@ -688,10 +688,20 @@ function main() {
   console.log("Extracting course content...");
   console.log(`  Repo root: ${REPO_ROOT}`);
 
-  cleanCourseAssets();
-
   const rootChapters = listRootChapters();
   const useRootTrack = rootChapters.length > 0;
+
+  const versionsFile = path.join(OUT_DIR, "versions.json");
+  const docsFile = path.join(OUT_DIR, "docs.json");
+
+  if (!useRootTrack && !fs.existsSync(LEGACY_AGENTS_DIR)) {
+    if (fs.existsSync(versionsFile) && fs.existsSync(docsFile)) {
+      console.log("  No source chapters found — keeping pre-generated data.");
+      return;
+    }
+  }
+
+  cleanCourseAssets();
 
   console.log(
     useRootTrack
@@ -718,8 +728,8 @@ function main() {
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
   const index: VersionIndex = { versions, diffs };
-  fs.writeFileSync(path.join(OUT_DIR, "versions.json"), JSON.stringify(index, null, 2));
-  fs.writeFileSync(path.join(OUT_DIR, "docs.json"), JSON.stringify(docs, null, 2));
+  fs.writeFileSync(versionsFile, JSON.stringify(index, null, 2));
+  fs.writeFileSync(docsFile, JSON.stringify(docs, null, 2));
 
   console.log("\nExtraction complete:");
   console.log(`  ${versions.length} versions`);
