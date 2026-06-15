@@ -1,0 +1,22 @@
+<Solution>
+  <Project Path="s01_provider_agnostic/s01_provider_agnostic.csproj" />
+  <Project Path="s02_middleware_pipeline/s02_middleware_pipeline.csproj" />
+  <Project Path="s03_agent_loop/s03_agent_loop.csproj" />
+  <Project Path="s04_tool_use/s04_tool_use.csproj" />
+  <Project Path="s05_permission/s05_permission.csproj" />
+  <Project Path="s06_hooks/s06_hooks.csproj" />
+  <Project Path="s07_planning/s07_planning.csproj" />
+  <Project Path="s08_agent_as_tool/s08_agent_as_tool.csproj" />
+  <Project Path="s09_skill_loading/s09_skill_loading.csproj" />
+  <Project Path="s10_context_compaction/s10_context_compaction.csproj" />
+  <Project Path="s11_system_prompt/s11_system_prompt.csproj" />
+  <Project Path="s12_error_recovery/s12_error_recovery.csproj" />
+  <Project Path="s13_workflows/s13_workflows.csproj" />
+  <Project Path="s14_background_tasks/s14_background_tasks.csproj" />
+  <Project Path="s15_multi_agent_workflows/s15_multi_agent_workflows.csproj" />
+  <Project Path="s16_a2a_protocol/s16_a2a_protocol.csproj" />
+  <Project Path="s17_mcp_integration/s17_mcp_integration.csproj" />
+  <Project Path="s18_evaluation/s18_evaluation.csproj" />
+  <Project Path="s19_hosting_observability/s19_hosting_observability.csproj" />
+  <Project Path="s20_comprehensive/s20_comprehensive.csproj" />
+</Solution>
