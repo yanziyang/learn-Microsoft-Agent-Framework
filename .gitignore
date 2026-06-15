@@ -10,10 +10,18 @@
 logs/
 
 # C# / .NET
+# Build outputs for every project (any TFM, any configuration)
 bin/
 obj/
+**/bin/
+**/obj/
+publish/
 *.user
+*.suo
 .vs/
+*.nupkg
+*.snupkg
+TestResults/
 
 # Local appsettings (do NOT commit user API keys)
 s*/appsettings.json
