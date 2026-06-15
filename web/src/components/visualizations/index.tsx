@@ -7,8 +7,8 @@ const visualizations: Record<
   string,
   React.LazyExoticComponent<React.ComponentType<{ title?: string }>>
 > = {
-  s01: lazy(() => import("./s03-agent-loop")),
-  s02: lazy(() => import("./s04-tool-dispatch")),
+  s01: lazy(() => import("./s01-provider-switching")),
+  s02: lazy(() => import("./s02-middleware-pipeline")),
   s03: lazy(() => import("./s03-agent-loop")),
   s04: lazy(() => import("./s04-tool-dispatch")),
   s05: lazy(() => import("./s05-permission")),
