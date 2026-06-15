@@ -2,45 +2,45 @@
   "version": "s12",
   "decisions": [
     {
-      "id": "tasks-as-files",
-      "title": "Tasks Are Durable JSON Files",
-      "description": "Each task is persisted under .tasks/ with id, subject, description, status, owner, and blockedBy. The task board survives context compaction and process restarts.",
-      "alternatives": "In-memory tasks are easier to code, but vanish exactly when long-running coordination needs them most.",
+      "id": "classified-recovery",
+      "title": "Errors Are Classified Before Recovery",
+      "description": "The recovery middleware does not treat all errors the same. It classifies each failure (max_tokens, prompt_too_long, 429 rate limit, 529 overload) and applies a targeted strategy. Escalation, compaction, backoff, and fallback are distinct paths, not a single retry loop.",
+      "alternatives": "A simple retry-with-backoff treats all errors identically and wastes time retrying failures that need a different fix (like context too long needing compaction, not a retry).",
       "zh": {
-        "title": "任务是持久 JSON 文件",
-        "description": "每个任务都持久化在 .tasks/ 下，包含 id、subject、description、status、owner、blockedBy。任务板能跨上下文压缩和进程重启保留。"
+        "title": "错误在恢复前先分类",
+        "description": "恢复中间件不会对所有错误一视同仁。它对每种失败进行分类（max_tokens、prompt_too_long、429 速率限制、529 过载），然后应用针对性策略。升级、压缩、退避和回退是不同的路径，而不是单一的重试循环。"
       },
       "ja": {
-        "title": "タスクは永続 JSON ファイル",
-        "description": "各タスクは .tasks/ に id、subject、description、status、owner、blockedBy を持って保存されます。タスクボードはコンテキスト圧縮や再起動を越えて残ります。"
+        "title": "エラーは回復前に分類される",
+        "description": "回復ミドルウェアはすべてのエラーを同じように扱いません。各障害を分類し（max_tokens、prompt_too_long、429 レート制限、529 過負荷）、対応する戦略を適用します。エスカレーション、圧縮、バックオフ、フォールバックは異なるパスであり、単一のリトライループではありません。"
       }
     },
     {
-      "id": "blockedby-dependencies",
-      "title": "blockedBy Encodes Ordering",
-      "description": "A task can only be claimed when all blockedBy dependencies are completed. Missing dependencies are treated as blocked to fail closed.",
-      "alternatives": "Letting the model remember ordering is fragile and hard for teammates to share.",
+      "id": "recovery-state",
+      "title": "Recovery Tracks What Has Been Tried",
+      "description": "A RecoveryState object records which recovery strategies have already been applied to the current request. This prevents infinite retry loops and ensures the fallback model is used only after other strategies are exhausted.",
+      "alternatives": "Stateless retry (just retry N times) can loop indefinitely on the same error. Tracking state ensures each error gets a unique response.",
       "zh": {
-        "title": "blockedBy 编码任务顺序",
-        "description": "只有所有 blockedBy 依赖都完成时，任务才能被 claim。缺失依赖也被视为阻塞，采用 fail closed。"
+        "title": "恢复过程跟踪已尝试的策略",
+        "description": "RecoveryState 对象记录了当前请求已应用的恢复策略。这防止了无限重试循环，并确保回退模型仅在其他策略用尽后才使用。"
       },
       "ja": {
-        "title": "blockedBy が順序を表現する",
-        "description": "blockedBy の依存がすべて完了した時だけタスクを claim できます。存在しない依存もブロック扱いにして fail closed にします。"
+        "title": "回復は試行は試行済みの戦略を追跡する",
+        "description": "RecoveryState オブジェクトは現在のリクエストに適用された回復戦略を記録します。これにより無限リトライループが防止され、フォールバックモデルは他の戦略が使い切られた後にのみ使用されます。"
       }
     },
     {
-      "id": "claim-complete-lifecycle",
-      "title": "Claim and Complete Make Work Observable",
-      "description": "claim_task records an owner and in_progress state; complete_task marks completion and reports downstream tasks that became unblocked.",
-      "alternatives": "A simple checklist can say done, but it cannot safely coordinate ownership or dependencies.",
+      "id": "no-fake-continuation",
+      "title": "Truncated Responses Are Not Fake-Continued",
+      "description": "When a max_tokens error occurs, the recovery middleware does not pretend the response was complete. It escalates the token budget and retries, producing a genuinely complete response. This avoids silent data loss from truncated tool calls or incomplete reasoning.",
+      "alternatives": "Some systems append '[truncated]' and continue, but this loses the end of the model's reasoning and can cause downstream tool calls with incomplete parameters.",
       "zh": {
-        "title": "Claim 和 Complete 让工作可观察",
-        "description": "claim_task 记录 owner 和 in_progress 状态；complete_task 标记完成，并报告被解锁的下游任务。"
+        "title": "截断的响应不会被伪造续写",
+        "description": "当发生 max_tokens 错误时，恢复中间件不会假装响应已完成。它会升级 token 预算并重试，生成真正完整的响应。这避免了截断工具调用或不完整推理导致的静默数据丢失。"
       },
       "ja": {
-        "title": "claim と complete が作業を観測可能にする",
-        "description": "claim_task は owner と in_progress を記録し、complete_task は完了を記録して解放された下流タスクを報告します。"
+        "title": "切断されたレスポンスは偽の継続をしない",
+        "description": "max_tokens エラーが発生したとき、回復ミドルウェアはレスポンスが完了したと偽りません。トークン予算をエスカレーションしてリトライし、真に完全なレスポンスを生成します。これにより切断されたツール呼び出しや不完全な推論によるサイレントデータロスを回避します。"
       }
     }
   ]

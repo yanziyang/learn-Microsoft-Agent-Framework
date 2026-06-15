@@ -17,6 +17,7 @@ const AGENT_COMMON_DIR = path.join(REPO_ROOT, "AgentCommon");
 const OUT_DIR = path.join(WEB_DIR, "src", "data", "generated");
 const PUBLIC_DIR = path.join(WEB_DIR, "public");
 const COURSE_ASSETS_DIR = path.join(PUBLIC_DIR, "course-assets");
+const FALLBACK_CONTENT_DIR = path.join(WEB_DIR, "content", "fallback");
 
 type Locale = "en" | "zh";
 type Language = "csharp" | "python";
@@ -376,8 +377,14 @@ function rewriteChapterMarkdown(
 ): string {
   let next = content;
 
+  // Fix old numbering in H1 title: replace "# sNN:" with the correct chapter ID
   next = next.replace(
-    /^\[English\]\(README\.md\)\s*\|\s*\[中文\]\(README-zh\.md\)\n\n?/m,
+    /^# s\d{2}:/m,
+    `# ${chapter.id}:`
+  );
+
+  next = next.replace(
+    /^\[中文\]\(README\.md\)\s*·\s*\[English\]\(README\.en\.md\)\s*(?:·\s*\[日本語\]\(README\.ja\.md\))?\n\n?/m,
     ""
   );
 
@@ -549,9 +556,21 @@ function buildRootDocs(chapters: ChapterSource[]): DocContent[] {
     for (const locale of locales) {
       const filename = localeReadmeName(locale);
       const filePath = path.join(chapter.dirPath, filename);
-      if (!fs.existsSync(filePath)) continue;
 
-      const raw = fs.readFileSync(filePath, "utf-8");
+      let raw: string | null = null;
+      if (fs.existsSync(filePath)) {
+        raw = fs.readFileSync(filePath, "utf-8");
+      } else {
+        // Try fallback content from web/content/fallback/
+        const fallbackFile = `${chapter.id}.${locale}.md`;
+        const fallbackPath = path.join(FALLBACK_CONTENT_DIR, fallbackFile);
+        if (fs.existsSync(fallbackPath)) {
+          raw = fs.readFileSync(fallbackPath, "utf-8");
+        }
+      }
+
+      if (!raw) continue;
+
       const content = rewriteChapterMarkdown(raw, chapter, locale);
       docs.push({
         version: chapter.id,

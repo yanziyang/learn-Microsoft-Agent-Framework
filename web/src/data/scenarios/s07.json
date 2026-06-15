@@ -1,34 +1,40 @@
 {
   "version": "s07",
-  "title": "Skills",
-  "description": "The agent sees a cheap skill catalog first, then loads full SKILL.md content only when needed.",
+  "title": "Planning",
+  "description": "A planning tool makes the agent's intended work visible and keeps long tasks from drifting.",
   "steps": [
     {
-      "type": "system_event",
-      "content": "build_system: skills available: agent-builder, code-review, mcp-builder, pdf",
-      "annotation": "Startup scans the skills directory and injects short descriptions into the system prompt."
-    },
-    {
       "type": "user_message",
-      "content": "Review this change like a code reviewer.",
-      "annotation": "The user asks for specialized behavior."
+      "content": "Refactor the parser and add a regression test.",
+      "annotation": "The task has multiple steps, so planning should become visible."
     },
     {
       "type": "tool_call",
-      "toolName": "load_skill",
-      "content": "{\"name\":\"code-review\"}",
-      "annotation": "The model chooses to load the full skill on demand."
+      "toolName": "todo_write",
+      "content": "[{\"content\":\"Inspect parser\",\"status\":\"in_progress\"},{\"content\":\"Refactor parsing branch\",\"status\":\"pending\"},{\"content\":\"Add regression test\",\"status\":\"pending\"}]",
+      "annotation": "The model records a plan before acting."
     },
     {
       "type": "tool_result",
-      "toolName": "load_skill",
-      "content": "# Code Review Skill\nFocus on bugs, regressions, and missing tests...",
-      "annotation": "Full skill text is injected as a tool result, not permanently in the system prompt."
+      "toolName": "todo_write",
+      "content": "Todos updated.",
+      "annotation": "The current todo list is kept by the harness."
+    },
+    {
+      "type": "tool_call",
+      "toolName": "read_file",
+      "content": "{\"path\":\"parser.py\"}",
+      "annotation": "Normal tools continue through the same dispatch table."
+    },
+    {
+      "type": "system_event",
+      "content": "<reminder>Update todo status after 3 rounds without todo_write.</reminder>",
+      "annotation": "The nag reminder keeps the plan fresh during long work."
     },
     {
       "type": "assistant_text",
-      "content": "I'll review the diff for behavioral risks first, then note test gaps.",
-      "annotation": "The loaded skill guides the next response."
+      "content": "I inspected the parser and will update the todo list before making the code change.",
+      "annotation": "The planning state guides the next turn."
     }
   ]
 }

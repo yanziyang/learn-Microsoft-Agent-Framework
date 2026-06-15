@@ -1,45 +1,61 @@
 {
   "version": "s13",
-  "title": "Background Tasks",
-  "description": "Long-running work moves to a thread while the agent keeps the main loop responsive.",
+  "title": "Workflows",
+  "description": "WorkflowBuilder orchestrates executors with edges, conditional routing, and parallel supersteps.",
   "steps": [
     {
       "type": "user_message",
-      "content": "Run a long repository scan and tell me when it finishes.",
-      "annotation": "The user asks for work that may exceed the normal foreground loop."
+      "content": "Run the build pipeline: lint, test, and deploy in the correct order.",
+      "annotation": "The user requests a multi-step pipeline with dependencies."
     },
     {
-      "type": "assistant_text",
-      "content": "I'll start the scan in the background so we can keep the conversation responsive.",
-      "annotation": "The model chooses the background path instead of blocking on the tool result."
+      "type": "system_event",
+      "content": "WorkflowBuilder: add executors [LintStep, TestStep, DeployStep], add edges [LintStep->TestStep, TestStep->DeployStep]",
+      "annotation": "The workflow graph defines execution order through edges."
+    },
+    {
+      "type": "system_event",
+      "content": "superstep 1: execute LintStep (no dependencies)",
+      "annotation": "The first executor runs because it has no incoming edges."
     },
     {
       "type": "tool_call",
       "toolName": "bash",
-      "content": "rg \"TODO|FIXME\" .",
-      "toolInput": "{\"background\":true}",
-      "annotation": "The tool call is wrapped with a background flag."
-    },
-    {
-      "type": "system_event",
-      "content": "background_tasks[task_42] = Thread(target=run_bash)",
-      "annotation": "The runtime starts a thread and returns immediately."
+      "content": "npm run lint",
+      "annotation": "The lint executor runs a shell command."
     },
     {
       "type": "tool_result",
       "toolName": "bash",
-      "content": "Started background task task_42.",
-      "annotation": "A placeholder result is appended to the main conversation."
+      "content": "No lint errors found.",
+      "annotation": "Lint passes. The workflow marks this executor as complete."
     },
     {
       "type": "system_event",
-      "content": "<task_notification id=\"task_42\" status=\"done\">Found 12 matches.</task_notification>",
-      "annotation": "The completed thread injects a notification back into the next loop."
+      "content": "superstep 2: execute TestStep (dependency LintStep satisfied)",
+      "annotation": "TestStep runs only after LintStep completes."
+    },
+    {
+      "type": "tool_call",
+      "toolName": "bash",
+      "content": "npm test",
+      "annotation": "The test executor runs after lint succeeds."
+    },
+    {
+      "type": "tool_result",
+      "toolName": "bash",
+      "content": "All 42 tests passed.",
+      "annotation": "Tests pass. The workflow continues to the next step."
+    },
+    {
+      "type": "system_event",
+      "content": "superstep 3: execute DeployStep (dependency TestStep satisfied)",
+      "annotation": "Deploy runs only after tests pass."
     },
     {
       "type": "assistant_text",
-      "content": "The scan finished with 12 matches. I'll summarize the most important ones now.",
-      "annotation": "The agent consumes the background result as fresh context."
+      "content": "Pipeline complete: lint passed, all 42 tests passed, deploy ready.",
+      "annotation": "The workflow finishes when all executors have run."
     }
   ]
 }

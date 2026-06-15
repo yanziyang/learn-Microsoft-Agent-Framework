@@ -2,45 +2,45 @@
   "version": "s04",
   "decisions": [
     {
-      "id": "hooks-around-loop",
-      "title": "Hooks Wrap the Loop Instead of Rewriting It",
-      "description": "UserPromptSubmit, PreToolUse, PostToolUse, and Stop hooks attach behavior at lifecycle points while the model-tool-result loop stays unchanged.",
-      "alternatives": "Inlining logging and permission into the loop is quicker at first, but every new cross-cutting concern would make the loop harder to read.",
+      "id": "four-tools-not-twenty",
+      "title": "Why Exactly Four Tools",
+      "description": "The four tools are bash, read_file, write_file, and edit_file. Together they cover roughly 95% of coding tasks. Bash handles execution and arbitrary commands. Read_file provides precise file reading with line numbers. Write_file creates or overwrites files. Edit_file does surgical string replacement. More tools would increase the model's cognitive load -- it has to decide which tool to use, and more options means more chances of picking the wrong one. Fewer tools also means fewer tool schemas to maintain and fewer edge cases to handle.",
+      "alternatives": "We could add specialized tools (list_directory, search_files, http_request), and later versions do. But at this stage, bash already covers those use cases. The split from v0's single tool to v1's four tools is specifically about giving the model structured I/O for file operations, where bash's quoting and escaping often trips up the model.",
       "zh": {
-        "title": "Hook 包裹循环，而不是改写循环",
-        "description": "UserPromptSubmit、PreToolUse、PostToolUse、Stop 等 hook 挂在生命周期节点上，模型-工具-结果循环本身保持不变。"
+        "title": "为什么恰好四个工具",
+        "description": "四个工具分别是 bash、read_file、write_file 和 edit_file，覆盖了大约 95% 的编程任务。Bash 处理执行和任意命令；read_file 提供带行号的精确文件读取；write_file 创建或覆盖文件；edit_file 做精确的字符串替换。工具越多，模型的认知负担越重——它必须在更多选项中做选择，选错的概率也随之增加。更少的工具也意味着更少的 schema 需要维护、更少的边界情况需要处理。"
       },
       "ja": {
-        "title": "フックはループを書き換えず包み込む",
-        "description": "UserPromptSubmit、PreToolUse、PostToolUse、Stop の各フックはライフサイクル地点に処理を追加し、model-tool-result ループ自体は保ちます。"
+        "title": "なぜ正確に4つのツールなのか",
+        "description": "4つのツールは bash、read_file、write_file、edit_file です。これらでコーディングタスクの約95%をカバーします。Bash は実行と任意のコマンドを処理し、read_file は行番号付きの正確なファイル読み取りを提供し、write_file はファイルの作成・上書きを行い、edit_file は外科的な文字列置換を行います。ツールが増えるとモデルの認知負荷が増大し、どのツールを使うかの判断でミスが増えます。ツールが少ないことは、メンテナンスすべきスキーマとエッジケースの削減も意味します。"
       }
     },
     {
-      "id": "pretooluse-can-block",
-      "title": "PreToolUse Is the Policy Boundary",
-      "description": "PreToolUse hooks run after the model chooses a tool but before the handler executes. That is the natural point for permission, logging, and safety policy.",
-      "alternatives": "Checking after execution can only report damage; checking before execution can prevent it.",
+      "id": "model-as-agent",
+      "title": "The Model IS the Agent",
+      "description": "The core agent loop is trivially simple: while True, call the LLM, if it returns tool_use blocks then execute them and feed results back, if it returns only text then stop. There is no router, no decision tree, no workflow engine. The model itself decides what to do, when to stop, and how to recover from errors. The code is just plumbing that connects the model to tools. This is a philosophical stance: agent behavior emerges from the model, not from the framework.",
+      "alternatives": "Many agent frameworks add elaborate orchestration layers: ReAct loops with explicit Thought/Action/Observation parsing, LangChain-style chains, AutoGPT-style goal decomposition. These frameworks assume the model needs scaffolding to behave as an agent. Our approach assumes the model already knows how to be an agent -- it just needs tools to act on the world.",
       "zh": {
-        "title": "PreToolUse 是策略边界",
-        "description": "PreToolUse 在模型选择工具之后、handler 执行之前运行。这是权限、日志和安全策略最自然的插入点。"
+        "title": "模型本身就是代理",
+        "description": "核心 agent 循环极其简单：不断调用 LLM，如果返回 tool_use 块就执行并回传结果，如果只返回文本就停止。没有路由器，没有决策树，没有工作流引擎。模型自己决定做什么、何时停止、如何从错误中恢复。代码只是连接模型和工具的管道。这是一种设计哲学：agent 行为从模型中涌现，而非由框架定义。"
       },
       "ja": {
-        "title": "PreToolUse はポリシー境界",
-        "description": "PreToolUse はモデルがツールを選んだ後、handler 実行前に動きます。権限、ログ、安全ポリシーを入れる自然な場所です。"
+        "title": "モデルそのものがエージェント",
+        "description": "コアのエージェントループは極めてシンプルです：LLM を呼び出し続け、tool_use ブロックが返されればそれを実行して結果をフィードバックし、テキストのみが返されれば停止します。ルーターも決定木もワークフローエンジンもありません。モデル自体が何をすべきか、いつ停止するか、エラーからどう回復するかを決定します。コードはモデルとツールを接続する配管に過ぎません。これは設計思想です：エージェントの振る舞いはフレームワークではなくモデルから創発するものです。"
       }
     },
     {
-      "id": "posttooluse-observability",
-      "title": "PostToolUse Keeps Results Observable",
-      "description": "PostToolUse hooks can inspect output size, record traces, or transform metadata without changing every tool handler.",
-      "alternatives": "Each tool could log its own result, but cross-tool behavior would drift.",
+      "id": "explicit-tool-schemas",
+      "title": "JSON Schemas for Every Tool",
+      "description": "Each tool defines a strict JSON schema for its input parameters. For example, edit_file requires old_string and new_string as exact strings, not regex patterns. This eliminates an entire class of bugs: the model can't pass malformed input because the API validates against the schema before execution. It also makes the model's intent unambiguous -- when it calls edit_file with specific strings, there's no parsing ambiguity about what it wants to change.",
+      "alternatives": "Some agent systems let the model output free-form text that gets parsed with regex or heuristics (e.g., extracting code from markdown blocks). This is fragile -- the model might format output slightly differently and break the parser. JSON schemas trade flexibility for reliability.",
       "zh": {
-        "title": "PostToolUse 让结果可观察",
-        "description": "PostToolUse 可以检查输出大小、记录 trace 或转换元数据，而不需要修改每个工具 handler。"
+        "title": "每个工具都有 JSON Schema",
+        "description": "每个工具都为输入参数定义了严格的 JSON schema。例如，edit_file 要求 old_string 和 new_string 是精确的字符串，而非正则表达式。这消除了一整类错误：模型无法传递格式错误的输入，因为 API 会在执行前校验 schema。这也使模型的意图变得明确——当它用特定字符串调用 edit_file 时，不存在关于它想修改什么的解析歧义。"
       },
       "ja": {
-        "title": "PostToolUse が結果を観測可能にする",
-        "description": "PostToolUse は出力サイズ確認、trace 記録、メタデータ変換を各 handler へ散らさずに行えます。"
+        "title": "全ツールに JSON Schema を定義",
+        "description": "各ツールは入力パラメータに対して厳密な JSON Schema を定義しています。例えば edit_file は old_string と new_string を正確な文字列として要求し、正規表現は使いません。これにより一連のバグを排除できます：API がスキーマに対して実行前にバリデーションを行うため、モデルは不正な入力を渡せません。モデルの意図も明確になります――特定の文字列で edit_file を呼び出す際、何を変更したいかについて解析の曖昧さがありません。"
       }
     }
   ]

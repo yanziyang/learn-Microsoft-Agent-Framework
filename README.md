@@ -1,7 +1,5 @@
 [English](./README.md) | [中文](./README-zh.md)
 
-<a href="https://trendshift.io/repositories/19746" target="_blank"><img src="https://trendshift.io/api/badge/repositories/19746" alt="shareAI-lab%2Flearn-claude-code | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-
 # Microsoft Agent Framework (MAF) and Microsoft.Extensions.AI Hands-on Guide
 
 > A 20-lesson hands-on tutorial for building AI agents with Microsoft

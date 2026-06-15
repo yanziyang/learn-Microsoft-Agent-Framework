@@ -1,0 +1,47 @@
+{
+  "version": "s18",
+  "decisions": [
+    {
+      "id": "evaluator-as-pipeline",
+      "title": "Evaluators Compose Like Middleware",
+      "description": "Each evaluator (CoherenceEvaluator, RelevanceEvaluator) scores one dimension of response quality. A CompositeEvaluator aggregates individual scores with configurable weights. This compositional approach lets you add new quality dimensions without changing existing evaluators.",
+      "alternatives": "A single monolithic quality score is simpler but hides which dimension is weak. Separate evaluators make it clear whether the problem is coherence, relevance, or something else.",
+      "zh": {
+        "title": "评估器像中间件一样组合",
+        "description": "每个评估器（CoherenceEvaluator、RelevanceEvaluator）为响应质量的一个维度打分。CompositeEvaluator 用可配置的权重聚合各个分数。这种组合方法让你可以在不更改现有评估器的情况下添加新的质量维度。"
+      },
+      "ja": {
+        "title": "エバリュエーターはミドルウェアのように合成される",
+        "description": "各エバリュエーター（CoherenceEvaluator、RelevanceEvaluator）はレスポンス品質の1つの次元をスコアリングします。CompositeEvaluator は設定可能な重みで個々のスコアを集約します。この合成アプローチにより、既存のエバリュエーターを変更せずに新しい品質次元を追加できます。"
+      }
+    },
+    {
+      "id": "post-response-evaluation",
+      "title": "Evaluation Happens After the Response",
+      "description": "Evaluators run on the completed question-answer pair, not during generation. This keeps the hot path (LLM call + tool execution) fast and allows evaluation to be deferred, batched, or skipped entirely in latency-sensitive scenarios.",
+      "alternatives": "Inline evaluation (scoring during generation) would catch problems earlier but adds latency to every response. Post-response evaluation is a better fit for production systems where most responses are acceptable.",
+      "zh": {
+        "title": "评估在响应完成后进行",
+        "description": "评估器在完成的问答对上运行，而不是在生成过程中。这保持了热路径（LLM 调用 + 工具执行）的速度，并允许在延迟敏感场景中延迟、批量或完全跳过评估。"
+      },
+      "ja": {
+        "title": "評価はレスポンス後に実行される",
+        "description": "エバリュエーターは完了した質問応答ペアで実行され、生成中ではありません。これによりホットパス（LLM 呼び出し + ツール実行）が高速に保たれ、レイテンシー敏感なシナリオで評価を遅延、バッチ処理、または完全にスキップすることが可能になります。"
+      }
+    },
+    {
+      "id": "quality-as-observability",
+      "title": "Evaluation Scores Are Observability Signals",
+      "description": "Evaluation results are structured data that can be logged, aggregated, and alerted on. They complement traditional observability (traces, metrics, logs) with application-level quality signals. A drop in coherence scores may indicate a model degradation or prompt regression.",
+      "alternatives": "Human evaluation is the gold standard but does not scale. Automated evaluators trade some accuracy for speed and coverage. The scores are useful as trend indicators even if individual scores have noise.",
+      "zh": {
+        "title": "评估分数是可观测性信号",
+        "description": "评估结果是结构化数据，可以记录、聚合和设置告警。它们用应用级质量信号补充了传统可观测性（跟踪、指标、日志）。连贯性分数下降可能表明模型退化或提示词回归。"
+      },
+      "ja": {
+        "title": "品質スコアはオブザーバビリティシグナル",
+        "description": "評価結果はログ、集約、アラート設定可能な構造化データです。従来のオブザーバビリティ（トレース、メトリクス、ログ）をアプリケーションレベルの品質シグナルで補完します。一貫性スコアの低下はモデルの劣化やプロンプトの回帰を示す可能性があります。"
+      }
+    }
+  ]
+}

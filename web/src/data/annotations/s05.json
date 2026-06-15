@@ -2,45 +2,45 @@
   "version": "s05",
   "decisions": [
     {
-      "id": "todo-as-tool",
-      "title": "TodoWrite Is a Tool, Not a Hidden Planner",
-      "description": "Planning enters the same tool dispatch path as bash or read_file. This keeps the planning state visible and lets the model decide when to update it.",
-      "alternatives": "An automatic planner could create todos behind the scenes, but the user would not see when the model's intent changed.",
+      "id": "permission-before-execution",
+      "title": "Permission Runs Before Tool Execution",
+      "description": "The permission check is inserted between the model's tool call and the handler. The model can ask for an action, but the harness decides whether the action may touch the real workspace.",
+      "alternatives": "Putting permission inside each tool duplicates policy and makes it easier for a new tool to forget the check.",
       "zh": {
-        "title": "TodoWrite 是工具，不是隐藏规划器",
-        "description": "规划通过和 bash、read_file 相同的工具分发路径进入系统。这样计划状态可见，模型也能决定何时更新。"
+        "title": "权限检查发生在工具执行前",
+        "description": "权限检查插在模型 tool call 和 handler 之间。模型可以请求动作，但是否允许触碰真实工作区由 harness 决定。"
       },
       "ja": {
-        "title": "TodoWrite は隠れたプランナーではなくツール",
-        "description": "計画は bash や read_file と同じツールディスパッチ経路に入ります。計画状態が可視化され、モデルが更新タイミングを選べます。"
+        "title": "権限確認はツール実行前に行う",
+        "description": "権限確認はモデルの tool call と handler の間に入ります。モデルは操作を要求できますが、実際のワークスペースに触れてよいかは harness が決めます。"
       }
     },
     {
-      "id": "nag-reminder",
-      "title": "A Lightweight Reminder Prevents Plan Drift",
-      "description": "After several rounds without todo updates, the runtime injects a reminder. The reminder nudges the model without taking over the plan.",
-      "alternatives": "Forcing a todo update every turn would be noisy and slow down simple tasks.",
+      "id": "three-gate-model",
+      "title": "Three Gates Keep Policy Explainable",
+      "description": "Hard denies, rule matches, and user approval are separate gates. That makes it clear whether a command was impossible, risky, or simply waiting for confirmation.",
+      "alternatives": "A single allow/deny function is shorter, but it hides why a command stopped.",
       "zh": {
-        "title": "轻量提醒防止计划漂移",
-        "description": "多个回合没有更新 todo 后，运行时会注入提醒。它只提醒模型，不接管计划。"
+        "title": "三道门让策略可解释",
+        "description": "硬拒绝、规则匹配、用户确认是分开的关卡。这样能看清命令是绝对禁止、有风险，还是只是在等确认。"
       },
       "ja": {
-        "title": "軽量リマインダーで計画の漂流を防ぐ",
-        "description": "数ターン todo 更新がない場合、ランタイムはリマインダーを注入します。計画を奪わず、モデルに更新を促します。"
+        "title": "三つのゲートでポリシーを説明可能にする",
+        "description": "ハード拒否、ルール照合、ユーザー承認を分けます。コマンドが不可能なのか、危険なのか、確認待ちなのかが明確になります。"
       }
     },
     {
-      "id": "in-memory-current-work",
-      "title": "Current Todos Stay Session-Local",
-      "description": "TodoWrite is for the current session's working plan, not durable project management. Later task systems handle persistent work.",
-      "alternatives": "Persisting every todo immediately would blur the difference between a scratch plan and a durable task graph.",
+      "id": "continue-with-tool-result",
+      "title": "Blocked Calls Still Produce Loop State",
+      "description": "A blocked tool call must still leave the loop in a coherent state. The user and model need to know why execution did not happen before choosing the next action.",
+      "alternatives": "Silently skipping a blocked tool is simpler, but the model may repeat the same unsafe request.",
       "zh": {
-        "title": "当前 Todo 保持会话内状态",
-        "description": "TodoWrite 面向当前会话的工作计划，不是持久项目管理。后面的任务系统负责持久工作。"
+        "title": "被拦截的调用也要留下循环状态",
+        "description": "被拦截的工具调用仍然要让循环状态保持一致。用户和模型都需要知道为什么没有执行，才能决定下一步。"
       },
       "ja": {
-        "title": "現在の todo はセッション内に留める",
-        "description": "TodoWrite は現在セッションの作業計画であり、永続的なプロジェクト管理ではありません。永続作業は後のタスクシステムが扱います。"
+        "title": "ブロックされた呼び出しもループ状態を残す",
+        "description": "ブロックされたツール呼び出しでも、ループの状態は一貫している必要があります。実行されなかった理由が分かって初めて次の行動を選べます。"
       }
     }
   ]

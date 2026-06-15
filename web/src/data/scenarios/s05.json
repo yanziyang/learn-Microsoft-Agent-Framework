@@ -1,40 +1,39 @@
 {
   "version": "s05",
-  "title": "TodoWrite",
-  "description": "A planning tool makes the agent's intended work visible and keeps long tasks from drifting.",
+  "title": "Permission",
+  "description": "Tool calls pass through hard denies, rule checks, and optional user approval before execution.",
   "steps": [
     {
       "type": "user_message",
-      "content": "Refactor the parser and add a regression test.",
-      "annotation": "The task has multiple steps, so planning should become visible."
-    },
-    {
-      "type": "tool_call",
-      "toolName": "todo_write",
-      "content": "[{\"content\":\"Inspect parser\",\"status\":\"in_progress\"},{\"content\":\"Refactor parsing branch\",\"status\":\"pending\"},{\"content\":\"Add regression test\",\"status\":\"pending\"}]",
-      "annotation": "The model records a plan before acting."
-    },
-    {
-      "type": "tool_result",
-      "toolName": "todo_write",
-      "content": "Todos updated.",
-      "annotation": "The current todo list is kept by the harness."
-    },
-    {
-      "type": "tool_call",
-      "toolName": "read_file",
-      "content": "{\"path\":\"parser.py\"}",
-      "annotation": "Normal tools continue through the same dispatch table."
-    },
-    {
-      "type": "system_event",
-      "content": "<reminder>Update todo status after 3 rounds without todo_write.</reminder>",
-      "annotation": "The nag reminder keeps the plan fresh during long work."
+      "content": "Delete the temporary build directory.",
+      "annotation": "The user asks for a filesystem action that may be safe or dangerous depending on the path."
     },
     {
       "type": "assistant_text",
-      "content": "I inspected the parser and will update the todo list before making the code change.",
-      "annotation": "The planning state guides the next turn."
+      "content": "I'll check the target before running the command.",
+      "annotation": "The model can propose a tool call, but the harness decides whether execution is allowed."
+    },
+    {
+      "type": "tool_call",
+      "toolName": "bash",
+      "content": "rm -rf /tmp/build-cache",
+      "annotation": "A destructive-looking command enters the permission pipeline."
+    },
+    {
+      "type": "system_event",
+      "content": "Gate 1 hard deny: pass\nGate 2 rule match: destructive command -> ask user",
+      "annotation": "The command is not absolutely forbidden, but it requires confirmation."
+    },
+    {
+      "type": "system_event",
+      "content": "User approval: allowed",
+      "annotation": "The runtime pauses before execution and resumes only after approval."
+    },
+    {
+      "type": "tool_result",
+      "toolName": "bash",
+      "content": "(no output)",
+      "annotation": "Allowed commands continue through the normal tool result path."
     }
   ]
 }

@@ -2,45 +2,45 @@
   "version": "s06",
   "decisions": [
     {
-      "id": "fresh-subagent-context",
-      "title": "Subagents Start with Fresh Messages",
-      "description": "The child agent receives only the delegated prompt. This isolates exploratory work and prevents the parent context from filling with every intermediate tool result.",
-      "alternatives": "Sharing the full parent history gives more context, but it defeats the purpose of delegation as context isolation.",
+      "id": "hooks-around-loop",
+      "title": "Hooks Wrap the Loop Instead of Rewriting It",
+      "description": "UserPromptSubmit, PreToolUse, PostToolUse, and Stop hooks attach behavior at lifecycle points while the model-tool-result loop stays unchanged.",
+      "alternatives": "Inlining logging and permission into the loop is quicker at first, but every new cross-cutting concern would make the loop harder to read.",
       "zh": {
-        "title": "子代理从全新 Messages 开始",
-        "description": "子代理只收到被委派的 prompt。这样探索性工作被隔离，父上下文不会塞满每个中间工具结果。"
+        "title": "Hook 包裹循环，而不是改写循环",
+        "description": "UserPromptSubmit、PreToolUse、PostToolUse、Stop 等 hook 挂在生命周期节点上，模型-工具-结果循环本身保持不变。"
       },
       "ja": {
-        "title": "サブエージェントは新しい messages で始まる",
-        "description": "子エージェントは委任された prompt だけを受け取ります。探索作業を隔離し、親コンテキストが中間 tool result で膨らむのを防ぎます。"
+        "title": "フックはループを書き換えず包み込む",
+        "description": "UserPromptSubmit、PreToolUse、PostToolUse、Stop の各フックはライフサイクル地点に処理を追加し、model-tool-result ループ自体は保ちます。"
       }
     },
     {
-      "id": "summary-only-return",
-      "title": "Only the Summary Returns to the Parent",
-      "description": "The parent receives a compact final answer, not the child's full transcript. That gives delegation a predictable context cost.",
-      "alternatives": "Returning the full transcript can help debugging, but it makes large subagent runs expensive to continue.",
+      "id": "pretooluse-can-block",
+      "title": "PreToolUse Is the Policy Boundary",
+      "description": "PreToolUse hooks run after the model chooses a tool but before the handler executes. That is the natural point for permission, logging, and safety policy.",
+      "alternatives": "Checking after execution can only report damage; checking before execution can prevent it.",
       "zh": {
-        "title": "只有摘要返回父循环",
-        "description": "父循环收到的是压缩后的最终答案，而不是子代理的完整 transcript。这样委派的上下文成本可预测。"
+        "title": "PreToolUse 是策略边界",
+        "description": "PreToolUse 在模型选择工具之后、handler 执行之前运行。这是权限、日志和安全策略最自然的插入点。"
       },
       "ja": {
-        "title": "親に戻るのは要約だけ",
-        "description": "親が受け取るのは子の完全な transcript ではなく、圧縮された最終回答です。委任のコンテキストコストを予測可能にします。"
+        "title": "PreToolUse はポリシー境界",
+        "description": "PreToolUse はモデルがツールを選んだ後、handler 実行前に動きます。権限、ログ、安全ポリシーを入れる自然な場所です。"
       }
     },
     {
-      "id": "no-recursive-task-tool",
-      "title": "Subagents Cannot Spawn Subagents",
-      "description": "The child tool set omits task, preventing recursive delegation from exploding. The lesson keeps isolation visible before adding richer team behavior later.",
-      "alternatives": "Allowing recursion is powerful, but much harder to bound and explain in a teaching runtime.",
+      "id": "posttooluse-observability",
+      "title": "PostToolUse Keeps Results Observable",
+      "description": "PostToolUse hooks can inspect output size, record traces, or transform metadata without changing every tool handler.",
+      "alternatives": "Each tool could log its own result, but cross-tool behavior would drift.",
       "zh": {
-        "title": "子代理不能再创建子代理",
-        "description": "子代理工具集中不包含 task，避免递归委派失控。课程先把隔离讲清楚，再在后续章节加入更复杂团队行为。"
+        "title": "PostToolUse 让结果可观察",
+        "description": "PostToolUse 可以检查输出大小、记录 trace 或转换元数据，而不需要修改每个工具 handler。"
       },
       "ja": {
-        "title": "サブエージェントはさらにサブエージェントを作れない",
-        "description": "子のツールセットから task を外し、再帰的委任の爆発を防ぎます。まず隔離を明確にし、後の章でより豊かなチーム動作を扱います。"
+        "title": "PostToolUse が結果を観測可能にする",
+        "description": "PostToolUse は出力サイズ確認、trace 記録、メタデータ変換を各 handler へ散らさずに行えます。"
       }
     }
   ]

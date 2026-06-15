@@ -2,45 +2,45 @@
   "version": "s19",
   "decisions": [
     {
-      "id": "normalized-mcp-namespace",
-      "title": "MCP Tools Use a Normalized Namespace",
-      "description": "Discovered tools are exposed as mcp__server__tool. The prefix makes the source explicit and avoids collisions with built-in tools or tools from another server.",
-      "alternatives": "Using the raw tool name is shorter, but search from two servers could overwrite each other.",
+      "id": "hosting-as-service-registration",
+      "title": "Agents Are Registered Services",
+      "description": "AddAIAgent() registers the agent as a first-class service in the ASP.NET Core dependency injection container. This means agents participate in the same lifecycle management, configuration binding, and health check infrastructure as any other hosted service.",
+      "alternatives": "Running agents as standalone processes would be simpler but loses the benefits of the hosting model: graceful shutdown, health probes, and configuration hot-reload.",
       "zh": {
-        "title": "MCP 工具使用规范化命名空间",
-        "description": "发现到的工具会暴露为 mcp__server__tool。前缀让工具来源明确，也避免和内置工具或其他服务器工具冲突。"
+        "title": "Agent 作为注册服务托管",
+        "description": "AddAIAgent() 将 Agent 注册为 ASP.NET Core 依赖注入容器中的一等服务。这意味着 Agent 参与与任何其他托管服务相同的生命周期管理、配置绑定和健康检查基础设施。"
       },
       "ja": {
-        "title": "MCP ツールは正規化された名前空間を使う",
-        "description": "発見されたツールは mcp__server__tool として公開されます。接頭辞により出所が明確になり、組み込みツールや別サーバーのツールとの衝突を避けます。"
+        "title": "エージェントは登録サービスとしてホストされる",
+        "description": "AddAIAgent() はエージェントを ASP.NET Core の依存性注入コンテナにファーストクラスサービスとして登録します。これによりエージェントは他のホストサービスと同じライフサイクル管理、設定バインディング、ヘルスチェックインフラストラクチャに参加します。"
       }
     },
     {
-      "id": "dynamic-tool-pool",
-      "title": "Tool Discovery Updates the Active Tool Pool",
-      "description": "After connecting to a server, the runtime assembles a new tool pool for the next LLM call. The model can only use MCP tools after discovery has made them visible.",
-      "alternatives": "Preloading every possible MCP tool would create a huge prompt and expose capabilities the user did not request.",
+      "id": "telemetry-as-middleware",
+      "title": "OpenTelemetry Integrates Through Middleware",
+      "description": "UseOpenTelemetry() adds distributed tracing around every LLM call and tool execution. The telemetry middleware captures request/response metadata, latency, token counts, and error classifications as structured trace spans. This integrates with any OTLP-compatible backend (Jaeger, Zipkin, Application Insights).",
+      "alternatives": "Manual instrumentation (wrapping each call with Activity.Start/Stop) would be more precise but is tedious and error-prone. Middleware-based telemetry is automatic and consistent.",
       "zh": {
-        "title": "工具发现会更新活动工具池",
-        "description": "连接服务器后，运行时会为下一次 LLM 调用组装新的工具池。模型只有在发现阶段让 MCP 工具可见之后，才能调用它们。"
+        "title": "OpenTelemetry 通过中间件集成",
+        "description": "UseOpenTelemetry() 在每次 LLM 调用和工具执行周围添加分布式跟踪。遥测中间件将请求/响应元数据、延迟、token 计数和错误分类作为结构化跟踪 span 捕获。这与任何 OTLP 兼容后端（Jaeger、Zipkin、Application Insights）集成。"
       },
       "ja": {
-        "title": "ツール発見がアクティブなツールプールを更新する",
-        "description": "サーバー接続後、ランタイムは次の LLM 呼び出し用に新しいツールプールを組み立てます。MCP ツールは発見で可視化された後にのみモデルが利用できます。"
+        "title": "OpenTelemetry はミドルウェア経由で統合される",
+        "description": "UseOpenTelemetry() はすべての LLM 呼び出しとツール実行の周囲に分散トレースを追加します。テレメトリミドルウェアはリクエスト/レスポンスメタデータ、レイテンシー、トークン数、エラー分類を構造化トレーススパンとしてキャプチャします。これは OTLP 互換バックエンド（Jaeger、Zipkin、Application Insights）と統合されます。"
       }
     },
     {
-      "id": "external-results-append-like-tools",
-      "title": "External Results Reuse the Tool Result Path",
-      "description": "MCP responses are appended to the conversation like ordinary tool results. This keeps the agent loop unchanged while still letting external systems participate.",
-      "alternatives": "A separate external-response channel would make MCP feel special and require extra loop logic.",
+      "id": "production-readiness",
+      "title": "Production Agents Need Infrastructure, Not Just Code",
+      "description": "The hosting chapter demonstrates that a production agent needs health checks, graceful shutdown, configuration management, and observability. These are not agent-specific concerns -- they are standard ASP.NET Core infrastructure that agents should participate in, not reinvent.",
+      "alternatives": "Custom agent frameworks often build their own lifecycle management, but this duplicates what the hosting model already provides. Using the standard hosting model means agents benefit from ecosystem tooling (health dashboards, config providers, log aggregators).",
       "zh": {
-        "title": "外部结果复用 Tool Result 路径",
-        "description": "MCP 响应会像普通 tool result 一样追加到对话中。这样 agent 循环无需改变，同时外部系统仍然可以参与。"
+        "title": "生产级 Agent 需要基础设施，而不仅仅是代码",
+        "description": "托管章节展示了生产级 Agent 需要健康检查、优雅关闭、配置管理和可观测性。这些不是 Agent 特定的关注点——它们是标准的 ASP.NET Core 基础设施，Agent 应该参与其中，而不是重新发明。"
       },
       "ja": {
-        "title": "外部結果は tool result 経路を再利用する",
-        "description": "MCP の応答は通常の tool result と同じように会話へ追加されます。エージェントループを変えずに外部システムを参加させられます。"
+        "title": "プロダクションエージェントにはコードだけでなくインフラが必要",
+        "description": "ホスティング章では、プロダクションエージェントにはヘルスチェック、グレースフルシャットダウン、設定管理、オブザーバビリティが必要であることを示しています。これらはエージェント固有の関心事ではなく、エージェントが参加すべき標準的な ASP.NET Core インフラストラクチャです。"
       }
     }
   ]

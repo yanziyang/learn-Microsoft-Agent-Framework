@@ -2,45 +2,45 @@
   "version": "s02",
   "decisions": [
     {
-      "id": "four-tools-not-twenty",
-      "title": "Why Exactly Four Tools",
-      "description": "The four tools are bash, read_file, write_file, and edit_file. Together they cover roughly 95% of coding tasks. Bash handles execution and arbitrary commands. Read_file provides precise file reading with line numbers. Write_file creates or overwrites files. Edit_file does surgical string replacement. More tools would increase the model's cognitive load -- it has to decide which tool to use, and more options means more chances of picking the wrong one. Fewer tools also means fewer tool schemas to maintain and fewer edge cases to handle.",
-      "alternatives": "We could add specialized tools (list_directory, search_files, http_request), and later versions do. But at this stage, bash already covers those use cases. The split from v0's single tool to v1's four tools is specifically about giving the model structured I/O for file operations, where bash's quoting and escaping often trips up the model.",
+      "id": "onion-layer-composition",
+      "title": "Middleware Wraps Like an Onion",
+      "description": "Each DelegatingChatClient wraps the next client in the chain. The outermost middleware sees the request first and the response last. This pattern is identical to ASP.NET Core middleware and is well understood by .NET developers.",
+      "alternatives": "Event-based hook systems (like the old OpenCode hooks) are more decoupled but harder to reason about execution order. Decorator chains are explicit and testable in isolation.",
       "zh": {
-        "title": "为什么恰好四个工具",
-        "description": "四个工具分别是 bash、read_file、write_file 和 edit_file，覆盖了大约 95% 的编程任务。Bash 处理执行和任意命令；read_file 提供带行号的精确文件读取；write_file 创建或覆盖文件；edit_file 做精确的字符串替换。工具越多，模型的认知负担越重——它必须在更多选项中做选择，选错的概率也随之增加。更少的工具也意味着更少的 schema 需要维护、更少的边界情况需要处理。"
+        "title": "中间件像洋葱一样层层包裹",
+        "description": "每个 DelegatingChatClient 包装链中的下一个客户端。最外层的中间件最先看到请求，最后看到响应。这个模式与 ASP.NET Core 中间件相同，.NET 开发者非常熟悉。"
       },
       "ja": {
-        "title": "なぜ正確に4つのツールなのか",
-        "description": "4つのツールは bash、read_file、write_file、edit_file です。これらでコーディングタスクの約95%をカバーします。Bash は実行と任意のコマンドを処理し、read_file は行番号付きの正確なファイル読み取りを提供し、write_file はファイルの作成・上書きを行い、edit_file は外科的な文字列置換を行います。ツールが増えるとモデルの認知負荷が増大し、どのツールを使うかの判断でミスが増えます。ツールが少ないことは、メンテナンスすべきスキーマとエッジケースの削減も意味します。"
+        "title": "ミドルウェアは玉ねぎのようにレイヤー化される",
+        "description": "各 DelegatingChatClient はチェーン内の次のクライアントをラップします。最も外側のミドルウェアがリクエストを最初に受け、レスポンスを最後に見ます。このパターンは ASP.NET Core ミドルウェアと同じで、.NET 開発者に良く理解されています。"
       }
     },
     {
-      "id": "model-as-agent",
-      "title": "The Model IS the Agent",
-      "description": "The core agent loop is trivially simple: while True, call the LLM, if it returns tool_use blocks then execute them and feed results back, if it returns only text then stop. There is no router, no decision tree, no workflow engine. The model itself decides what to do, when to stop, and how to recover from errors. The code is just plumbing that connects the model to tools. This is a philosophical stance: agent behavior emerges from the model, not from the framework.",
-      "alternatives": "Many agent frameworks add elaborate orchestration layers: ReAct loops with explicit Thought/Action/Observation parsing, LangChain-style chains, AutoGPT-style goal decomposition. These frameworks assume the model needs scaffolding to behave as an agent. Our approach assumes the model already knows how to be an agent -- it just needs tools to act on the world.",
+      "id": "cross-cutting-concerns",
+      "title": "Each Layer Handles One Concern",
+      "description": "Logging, caching, telemetry, retry, and rate limiting are each a separate middleware. They compose independently and can be tested in isolation. The core chat client stays unchanged regardless of which middleware is active.",
+      "alternatives": "A monolithic client with built-in logging/caching/telemetry would be simpler to configure but impossible to customize or test individually.",
       "zh": {
-        "title": "模型本身就是代理",
-        "description": "核心 agent 循环极其简单：不断调用 LLM，如果返回 tool_use 块就执行并回传结果，如果只返回文本就停止。没有路由器，没有决策树，没有工作流引擎。模型自己决定做什么、何时停止、如何从错误中恢复。代码只是连接模型和工具的管道。这是一种设计哲学：agent 行为从模型中涌现，而非由框架定义。"
+        "title": "每一层处理一个关注点",
+        "description": "日志、缓存、遥测、重试和速率限制各自是独立的中间件。它们独立组合，可以单独测试。核心聊天客户端无论哪个中间件处于活动状态都保持不变。"
       },
       "ja": {
-        "title": "モデルそのものがエージェント",
-        "description": "コアのエージェントループは極めてシンプルです：LLM を呼び出し続け、tool_use ブロックが返されればそれを実行して結果をフィードバックし、テキストのみが返されれば停止します。ルーターも決定木もワークフローエンジンもありません。モデル自体が何をすべきか、いつ停止するか、エラーからどう回復するかを決定します。コードはモデルとツールを接続する配管に過ぎません。これは設計思想です：エージェントの振る舞いはフレームワークではなくモデルから創発するものです。"
+        "title": "各レイヤーは1つの関心事を処理する",
+        "description": "ログ、キャッシュ、テレメトリ、リトライ、レート制限はそれぞれ独立したミドルウェアです。独立して組み合わせられ、個別にテストできます。コアチャットクライアントはどのミドルウェアがアクティブであっても変更されません。"
       }
     },
     {
-      "id": "explicit-tool-schemas",
-      "title": "JSON Schemas for Every Tool",
-      "description": "Each tool defines a strict JSON schema for its input parameters. For example, edit_file requires old_string and new_string as exact strings, not regex patterns. This eliminates an entire class of bugs: the model can't pass malformed input because the API validates against the schema before execution. It also makes the model's intent unambiguous -- when it calls edit_file with specific strings, there's no parsing ambiguity about what it wants to change.",
-      "alternatives": "Some agent systems let the model output free-form text that gets parsed with regex or heuristics (e.g., extracting code from markdown blocks). This is fragile -- the model might format output slightly differently and break the parser. JSON schemas trade flexibility for reliability.",
+      "id": "function-invoking-as-middleware",
+      "title": "FunctionInvokingChatClient Is Just Middleware",
+      "description": "Tool dispatch is not a special case. FunctionInvokingChatClient is a DelegatingChatClient that intercepts tool_call responses, executes the tool, and feeds the result back. It composes with logging and caching the same way any other middleware does.",
+      "alternatives": "Building tool dispatch into the core client would be faster but would make it impossible to add middleware around tool execution (e.g., permission checks, audit logging).",
       "zh": {
-        "title": "每个工具都有 JSON Schema",
-        "description": "每个工具都为输入参数定义了严格的 JSON schema。例如，edit_file 要求 old_string 和 new_string 是精确的字符串，而非正则表达式。这消除了一整类错误：模型无法传递格式错误的输入，因为 API 会在执行前校验 schema。这也使模型的意图变得明确——当它用特定字符串调用 edit_file 时，不存在关于它想修改什么的解析歧义。"
+        "title": "FunctionInvokingChatClient 只是中间件",
+        "description": "工具分发不是特殊情况。FunctionInvokingChatClient 是一个 DelegatingChatClient，它拦截 tool_call 响应、执行工具并将结果反馈。它与日志和缓存的组合方式与其他中间件完全相同。"
       },
       "ja": {
-        "title": "全ツールに JSON Schema を定義",
-        "description": "各ツールは入力パラメータに対して厳密な JSON Schema を定義しています。例えば edit_file は old_string と new_string を正確な文字列として要求し、正規表現は使いません。これにより一連のバグを排除できます：API がスキーマに対して実行前にバリデーションを行うため、モデルは不正な入力を渡せません。モデルの意図も明確になります――特定の文字列で edit_file を呼び出す際、何を変更したいかについて解析の曖昧さがありません。"
+        "title": "FunctionInvokingChatClient は単なるミドルウェア",
+        "description": "ツールディスパッチは特別なケースではありません。FunctionInvokingChatClient は tool_call レスポンスをインターセプトし、ツールを実行し、結果をフィードバックする DelegatingChatClient です。ログやキャッシュと同じ方法で他のミドルウェアと組み合わせることができます。"
       }
     }
   ]

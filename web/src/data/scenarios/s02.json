@@ -1,46 +1,42 @@
 {
   "version": "s02",
-  "title": "Tool Use",
-  "description": "Agent with read, write, edit, and bash tools",
+  "title": "Middleware Pipeline",
+  "description": "DelegatingChatClient middleware composes cross-cutting concerns around the chat client.",
   "steps": [
     {
       "type": "user_message",
-      "content": "Add a function called greet(name) to hello.py",
-      "annotation": "User requests a code modification"
+      "content": "Summarize the middleware pipeline architecture.",
+      "annotation": "The request enters the outermost middleware layer."
+    },
+    {
+      "type": "system_event",
+      "content": "pipeline: LoggingMiddleware -> CachingMiddleware -> TelemetryMiddleware -> OpenAIChatClient",
+      "annotation": "Each middleware wraps the next, forming an onion around the core client."
+    },
+    {
+      "type": "system_event",
+      "content": "LoggingMiddleware: log request metadata, pass to inner client",
+      "annotation": "The logging layer records the incoming request before delegating."
+    },
+    {
+      "type": "system_event",
+      "content": "CachingMiddleware: cache miss, pass to inner client, cache response",
+      "annotation": "The caching layer checks for a stored response before calling the LLM."
+    },
+    {
+      "type": "system_event",
+      "content": "TelemetryMiddleware: start span, call inner client, end span",
+      "annotation": "The telemetry layer measures latency around the actual LLM call."
     },
     {
       "type": "assistant_text",
-      "content": "Let me read the current file first.",
-      "annotation": "Model chooses read_file instead of bash cat"
+      "content": "Middleware wraps the chat client with composable layers. Each layer handles one concern: logging, caching, or telemetry. The core client stays unchanged.",
+      "annotation": "The response unwinds back through each middleware in reverse order."
     },
     {
-      "type": "tool_call",
-      "content": "hello.py",
-      "toolName": "read_file",
-      "annotation": "Dedicated read tool provides cleaner file access"
-    },
-    {
-      "type": "tool_result",
-      "content": "print(\"Hello, World!\")",
-      "toolName": "read_file",
-      "annotation": "File contents returned to the model"
-    },
-    {
-      "type": "tool_call",
-      "content": "hello.py\n---\ndef greet(name):\n    print(f\"Hello, {name}!\")\n\ngreet(\"World\")",
-      "toolName": "write_file",
-      "annotation": "write_file replaces the entire file content"
-    },
-    {
-      "type": "tool_result",
-      "content": "File written successfully",
-      "toolName": "write_file",
-      "annotation": "Write confirmed"
-    },
-    {
-      "type": "assistant_text",
-      "content": "I've updated hello.py with a greet(name) function that takes a name parameter.",
-      "annotation": "4 tools beat 1: each tool has a clear, focused purpose"
+      "type": "system_event",
+      "content": "TelemetryMiddleware: record duration\nCachingMiddleware: store response\nLoggingMiddleware: log completion",
+      "annotation": "Each middleware processes the response on the way out, same as on the way in."
     }
   ]
 }

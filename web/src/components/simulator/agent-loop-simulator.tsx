@@ -17,13 +17,16 @@ const scenarioModules: Record<string, () => Promise<{ default: Scenario }>> = {
   s06: () => import("@/data/scenarios/s06.json") as Promise<{ default: Scenario }>,
   s07: () => import("@/data/scenarios/s07.json") as Promise<{ default: Scenario }>,
   s08: () => import("@/data/scenarios/s08.json") as Promise<{ default: Scenario }>,
+  s09: () => import("@/data/scenarios/s09.json") as Promise<{ default: Scenario }>,
   s10: () => import("@/data/scenarios/s10.json") as Promise<{ default: Scenario }>,
   s11: () => import("@/data/scenarios/s11.json") as Promise<{ default: Scenario }>,
   s12: () => import("@/data/scenarios/s12.json") as Promise<{ default: Scenario }>,
   s13: () => import("@/data/scenarios/s13.json") as Promise<{ default: Scenario }>,
+  s14: () => import("@/data/scenarios/s14.json") as Promise<{ default: Scenario }>,
   s15: () => import("@/data/scenarios/s15.json") as Promise<{ default: Scenario }>,
   s16: () => import("@/data/scenarios/s16.json") as Promise<{ default: Scenario }>,
-  s19: () => import("@/data/scenarios/s19.json") as Promise<{ default: Scenario }>,
+  s17: () => import("@/data/scenarios/s17.json") as Promise<{ default: Scenario }>,
+  s18: () => import("@/data/scenarios/s18.json") as Promise<{ default: Scenario }>,
   s20: () => import("@/data/scenarios/s20.json") as Promise<{ default: Scenario }>,
 };
 

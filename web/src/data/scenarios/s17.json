@@ -1,6 +1,6 @@
 {
-  "version": "s19",
-  "title": "MCP Tools",
+  "version": "s17",
+  "title": "MCP Integration",
   "description": "The agent discovers external MCP tools and exposes them through a normalized tool namespace.",
   "steps": [
     {

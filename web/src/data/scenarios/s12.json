@@ -1,48 +1,58 @@
 {
   "version": "s12",
-  "title": "Task System",
-  "description": "A file-persisted task graph tracks status, ownership, and blockedBy dependencies.",
+  "title": "Error Recovery",
+  "description": "DelegatingChatClient middleware classifies errors and applies targeted recovery strategies.",
   "steps": [
     {
       "type": "user_message",
-      "content": "Break the release into tasks and block deployment until tests pass.",
-      "annotation": "The user asks for durable multi-step coordination."
+      "content": "Refactor the entire authentication module.",
+      "annotation": "A large request that may trigger context or token limit errors."
+    },
+    {
+      "type": "assistant_text",
+      "content": "I'll read the auth module and plan the refactor.",
+      "annotation": "The model begins working on the task."
     },
     {
       "type": "tool_call",
-      "toolName": "create_task",
-      "content": "{\"subject\":\"Run tests\"}",
-      "annotation": "Tasks are created as JSON files under .tasks/."
+      "toolName": "read_file",
+      "content": "{\"path\":\"src/auth.ts\"}",
+      "annotation": "Standard tool execution proceeds normally."
     },
     {
-      "type": "tool_call",
-      "toolName": "create_task",
-      "content": "{\"subject\":\"Deploy release\",\"blockedBy\":[\"task_tests\"]}",
-      "annotation": "blockedBy encodes dependency ordering."
+      "type": "system_event",
+      "content": "LLM call failed: max_tokens (response was truncated)",
+      "annotation": "The model ran out of output tokens. Recovery middleware classifies the error."
     },
     {
-      "type": "tool_call",
-      "toolName": "claim_task",
-      "content": "{\"task_id\":\"task_deploy\",\"owner\":\"agent\"}",
-      "annotation": "The claim fails until dependencies are complete."
+      "type": "system_event",
+      "content": "classify_error -> max_tokens: escalate max_tokens from 4096 to 8192, retry",
+      "annotation": "Recovery strategy: increase the token budget and retry the same request."
     },
     {
-      "type": "tool_result",
-      "toolName": "claim_task",
-      "content": "Blocked by: [\"task_tests\"]",
-      "annotation": "The task graph prevents premature work."
+      "type": "assistant_text",
+      "content": "I'll continue the refactor with the expanded token budget. The auth module needs three changes...",
+      "annotation": "The retry succeeds with the escalated token limit."
     },
     {
-      "type": "tool_call",
-      "toolName": "complete_task",
-      "content": "{\"task_id\":\"task_tests\"}",
-      "annotation": "Completing a dependency can unblock downstream tasks."
+      "type": "system_event",
+      "content": "LLM call failed: prompt_too_long (context window exceeded)",
+      "annotation": "After many tool calls, the context grew too large."
     },
     {
-      "type": "tool_result",
-      "toolName": "complete_task",
-      "content": "Completed task_tests\nUnblocked: Deploy release",
-      "annotation": "The harness reports newly available work."
+      "type": "system_event",
+      "content": "classify_error -> prompt_too_long: trigger reactive compact, retry",
+      "annotation": "Recovery strategy: compress the context window and retry."
+    },
+    {
+      "type": "system_event",
+      "content": "reactive_compact: summarize older messages, preserve recent context",
+      "annotation": "The compaction middleware reduces context size while keeping task-relevant information."
+    },
+    {
+      "type": "assistant_text",
+      "content": "After context compaction, I can continue. The remaining changes are in the session handler.",
+      "annotation": "The retry succeeds with the compacted context."
     }
   ]
 }

@@ -1,40 +1,44 @@
 {
   "version": "s06",
-  "title": "Subagent",
-  "description": "The task tool spawns a fresh subagent context and returns only a final summary to the parent.",
+  "title": "Hooks",
+  "description": "Lifecycle hooks attach logging, permission, and output handling around the same stable agent loop.",
   "steps": [
     {
       "type": "user_message",
-      "content": "Explore how the CLI parser works without polluting this main context.",
-      "annotation": "The user asks for exploratory work that can be isolated."
-    },
-    {
-      "type": "tool_call",
-      "toolName": "task",
-      "content": "{\"prompt\":\"Explore the CLI parser and summarize the control flow.\"}",
-      "annotation": "The parent delegates through the task tool."
+      "content": "Read package.json and summarize the scripts.",
+      "annotation": "UserPromptSubmit hooks run before the prompt enters the LLM call."
     },
     {
       "type": "system_event",
-      "content": "spawn_subagent: messages=[{role:\"user\", content: prompt}], tools=bash/read/write/edit/glob",
-      "annotation": "The child receives a fresh message history and no recursive task tool."
+      "content": "trigger_hooks(UserPromptSubmit): log_user_prompt",
+      "annotation": "Extension logic is outside the core loop."
     },
     {
       "type": "tool_call",
       "toolName": "read_file",
-      "content": "{\"path\":\"cli.py\"}",
-      "annotation": "Inside the child loop, intermediate tool calls stay private."
+      "content": "{\"path\":\"package.json\"}",
+      "annotation": "The LLM asks to use a tool."
+    },
+    {
+      "type": "system_event",
+      "content": "trigger_hooks(PreToolUse): permission_hook, log_hook -> allowed",
+      "annotation": "PreToolUse hooks can block, audit, or annotate the tool call."
     },
     {
       "type": "tool_result",
-      "toolName": "task",
-      "content": "Summary: cli.py parses args, selects a command handler, then dispatches.",
-      "annotation": "Only the subagent's final summary returns to the parent."
+      "toolName": "read_file",
+      "content": "{ \"scripts\": { \"build\": \"next build\" } }",
+      "annotation": "The handler executes only after hooks allow it."
+    },
+    {
+      "type": "system_event",
+      "content": "trigger_hooks(PostToolUse): large_output_hook",
+      "annotation": "PostToolUse hooks see the result before it returns to the model."
     },
     {
       "type": "assistant_text",
-      "content": "The parser is isolated in cli.py and dispatches by command name. I'll use that summary in the main plan.",
-      "annotation": "The parent avoids carrying every exploratory detail."
+      "content": "The project exposes a build script that runs Next's production build.",
+      "annotation": "Stop hooks can run when the model no longer requests tools."
     }
   ]
 }

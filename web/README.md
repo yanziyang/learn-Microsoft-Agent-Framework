@@ -3,6 +3,7 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 ## Getting Started
 
 Firstly, install npm dependencies in web:
+cd web
 npm install
 
 Next, run the development server:

@@ -2,45 +2,45 @@
   "version": "s13",
   "decisions": [
     {
-      "id": "explicit-background-boundary",
-      "title": "Background Work Is an Execution Mode, Not a New Tool",
-      "description": "The lesson keeps the familiar tool surface and adds a background execution flag around slow operations. That makes the new mechanism visible: the same bash call can either block the loop or be moved to a thread. The agent learns that responsiveness is a runtime concern, not a reason to invent a separate tool for every slow task.",
-      "alternatives": "A dedicated background_bash tool would be simpler to route, but it would hide the more general idea that any slow operation can be scheduled asynchronously.",
+      "id": "graph-over-sequential",
+      "title": "Workflow Graphs Beat Flat Sequential Loops",
+      "description": "WorkflowBuilder models execution as a directed graph of executors connected by edges. This naturally expresses dependencies (A must finish before B starts), parallel branches (B and C can run after A), and conditional routing (if B fails, go to D). A flat loop cannot express these patterns without custom state management.",
+      "alternatives": "A sequential pipeline (step1 then step2 then step3) is simpler but cannot express parallelism or conditional branching. Custom state machines can express any pattern but are harder to visualize and maintain.",
       "zh": {
-        "title": "后台任务是执行模式，而不是新工具",
-        "description": "课程保留原有工具表面，只在慢操作外增加后台执行标记。这样能清楚看到：同一个 bash 调用既可以阻塞主循环，也可以放入线程。Agent 学到的是响应性属于运行时问题，而不是每个慢任务都要发明一个新工具。"
+        "title": "工作流图优于扁平顺序循环",
+        "description": "WorkflowBuilder 将执行建模为由边连接的执行器有向图。这自然地表达了依赖关系（A 必须在 B 开始前完成）、并行分支（B 和 C 可以在 A 之后运行）和条件路由（如果 B 失败，转到 D）。扁平循环无法在没有自定义状态管理的情况下表达这些模式。"
       },
       "ja": {
-        "title": "バックグラウンド処理は新ツールではなく実行モード",
-        "description": "このレッスンでは既存のツール面を保ち、遅い操作にバックグラウンド実行フラグを加えます。同じ bash 呼び出しがループをブロックすることも、スレッドへ移すこともできる点が見えます。応答性はランタイムの責務であり、遅いタスクごとに新しいツールを作る必要はありません。"
+        "title": "ワークフローグラフはフラットな順序ループより優れている",
+        "description": "WorkflowBuilder は実行をエッジで接続されたエグゼキューターの有向グラフとしてモデル化します。これにより依存関係（AはBの開始前に完了）、並行分支（Aの後にBとCが実行可能）、条件ルーティング（Bが失敗したらDへ）を自然に表現できます。フラットループはカスタム状態管理なしにこれらのパターンを表現できません。"
       }
     },
     {
-      "id": "notification-reentry",
-      "title": "Completed Threads Re-enter as Notifications",
-      "description": "Background results are injected as task notifications instead of pretending to be immediate tool results. This preserves the chronology of the conversation: the model first sees that work started, and later sees that a task completed.",
-      "alternatives": "The thread could mutate the last tool result in place, but that would make the transcript impossible to reason about and hard to replay.",
+      "id": "executor-isolation",
+      "title": "Executors Are Independent Units",
+      "description": "Each executor in the workflow graph is a self-contained unit that receives input from its predecessors and produces output for its successors. Executors do not share mutable state. This makes them testable in isolation and composable into larger workflows.",
+      "alternatives": "Shared mutable state between executors would be faster but creates coupling and makes testing unreliable. Message-passing between executors (like actor model) is more decoupled but adds complexity.",
       "zh": {
-        "title": "线程完成后以通知形式回到循环",
-        "description": "后台结果会作为任务通知注入，而不是伪装成立即返回的 tool result。这样保留了对话时间线：模型先看到任务已启动，之后再看到任务完成。"
+        "title": "执行器是独立单元",
+        "description": "工作流图中的每个执行器都是自包含的单元，从前驱接收输入并为后继产生输出。执行器不共享可变状态。这使它们可以独立测试并组合成更大的工作流。"
       },
       "ja": {
-        "title": "完了したスレッドは通知として戻る",
-        "description": "バックグラウンド結果は即時の tool result ではなくタスク通知として注入されます。モデルはまず作業開始を見て、その後に完了を知るため、会話の時系列が保たれます。"
+        "title": "エグゼキューターは独立したユニット",
+        "description": "ワークフローグラフの各エグゼキューターは、前任者から入力を受け取り、後続者に出力を生成する自己完結型ユニットです。エグゼキューターは可変状態を共有しません。これにより個別にテスト可能で、より大きなワークフローに組み合わせることができます。"
       }
     },
     {
-      "id": "shared-result-store",
-      "title": "A Small Shared Store Keeps Threads Observable",
-      "description": "The implementation tracks background task state and results in explicit dictionaries. That keeps the code teachable while still exposing the hard parts of concurrency: ids, lifecycle state, and safe collection.",
-      "alternatives": "A full queue or job database would be more production-ready, but it would obscure the minimal moving parts needed to understand threaded agent work.",
+      "id": "superstep-synchronization",
+      "title": "Supersteps Provide Natural Synchronization Points",
+      "description": "A superstep is a set of executors that can run in parallel because all their dependencies are satisfied. The workflow engine runs all executors in a superstep concurrently, then waits for all to complete before advancing to the next superstep. This is the BSP (Bulk Synchronous Parallel) model.",
+      "alternatives": "Fully asynchronous execution (fire and forget) is more efficient but harder to debug. The superstep model provides clear checkpoints where the workflow state is consistent.",
       "zh": {
-        "title": "小型共享存储让线程可观察",
-        "description": "实现用显式字典记录后台任务状态和结果。这样代码仍然易学，同时暴露并发中的关键问题：任务 id、生命周期状态和结果收集。"
+        "title": "超步提供自然同步点",
+        "description": "超步是一组可以并行运行的执行器，因为它们的所有依赖都已满足。工作流引擎并发运行超步中的所有执行器，然后等待所有执行器完成后再推进到下一个超步。这是 BSP（批量同步并行）模型。"
       },
       "ja": {
-        "title": "小さな共有ストアでスレッドを観測可能にする",
-        "description": "実装は辞書でバックグラウンドタスクの状態と結果を追跡します。コードを学びやすく保ちながら、id、ライフサイクル、安全な収集という並行処理の要点を示します。"
+        "title": "スーパーステップは自然な同期ポイントを提供する",
+        "description": "スーパーステップは、すべての依存関係が満たされているため並行実行できるエグゼキューターのセットです。ワークフローエンジンはスーパーステップ内のすべてのエグゼキューターを同時に実行し、すべてが完了するのを待ってから次のスーパーステップに進みます。これはBSP（バルク同期並列）モデルです。"
       }
     }
   ]

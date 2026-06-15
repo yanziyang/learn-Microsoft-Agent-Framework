@@ -1,0 +1,42 @@
+{
+  "version": "s18",
+  "title": "Evaluation",
+  "description": "MEAI evaluators score agent responses for coherence, relevance, and quality.",
+  "steps": [
+    {
+      "type": "user_message",
+      "content": "Explain how to add middleware to the chat client pipeline.",
+      "annotation": "The user asks a technical question that the agent answers."
+    },
+    {
+      "type": "assistant_text",
+      "content": "Use AddChatClient on the service collection to register middleware. Each DelegatingChatClient wraps the next in the pipeline. The order of registration determines execution order.",
+      "annotation": "The agent provides a response that should be evaluated for quality."
+    },
+    {
+      "type": "system_event",
+      "content": "evaluate(question, answer) -> run evaluators in parallel",
+      "annotation": "The evaluation pipeline kicks in after the response is generated."
+    },
+    {
+      "type": "system_event",
+      "content": "CoherenceEvaluator: score 0.92 (response is logically consistent, no contradictions)",
+      "annotation": "The coherence evaluator checks that the response is internally consistent."
+    },
+    {
+      "type": "system_event",
+      "content": "RelevanceEvaluator: score 0.88 (response directly addresses the question)",
+      "annotation": "The relevance evaluator checks that the response stays on topic."
+    },
+    {
+      "type": "system_event",
+      "content": "CompositeEvaluator: weighted average -> 0.90 (above threshold 0.7)",
+      "annotation": "The composite evaluator combines individual scores into a final quality rating."
+    },
+    {
+      "type": "system_event",
+      "content": "evaluation_result: { coherence: 0.92, relevance: 0.88, composite: 0.90, pass: true }",
+      "annotation": "The evaluation result is recorded for observability and quality tracking."
+    }
+  ]
+}

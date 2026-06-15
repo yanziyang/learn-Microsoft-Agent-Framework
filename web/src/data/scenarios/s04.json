@@ -1,44 +1,46 @@
 {
   "version": "s04",
-  "title": "Hooks",
-  "description": "Lifecycle hooks attach logging, permission, and output handling around the same stable agent loop.",
+  "title": "Tool Use",
+  "description": "Agent with read, write, edit, and bash tools",
   "steps": [
     {
       "type": "user_message",
-      "content": "Read package.json and summarize the scripts.",
-      "annotation": "UserPromptSubmit hooks run before the prompt enters the LLM call."
-    },
-    {
-      "type": "system_event",
-      "content": "trigger_hooks(UserPromptSubmit): log_user_prompt",
-      "annotation": "Extension logic is outside the core loop."
-    },
-    {
-      "type": "tool_call",
-      "toolName": "read_file",
-      "content": "{\"path\":\"package.json\"}",
-      "annotation": "The LLM asks to use a tool."
-    },
-    {
-      "type": "system_event",
-      "content": "trigger_hooks(PreToolUse): permission_hook, log_hook -> allowed",
-      "annotation": "PreToolUse hooks can block, audit, or annotate the tool call."
-    },
-    {
-      "type": "tool_result",
-      "toolName": "read_file",
-      "content": "{ \"scripts\": { \"build\": \"next build\" } }",
-      "annotation": "The handler executes only after hooks allow it."
-    },
-    {
-      "type": "system_event",
-      "content": "trigger_hooks(PostToolUse): large_output_hook",
-      "annotation": "PostToolUse hooks see the result before it returns to the model."
+      "content": "Add a function called greet(name) to hello.py",
+      "annotation": "User requests a code modification"
     },
     {
       "type": "assistant_text",
-      "content": "The project exposes a build script that runs Next's production build.",
-      "annotation": "Stop hooks can run when the model no longer requests tools."
+      "content": "Let me read the current file first.",
+      "annotation": "Model chooses read_file instead of bash cat"
+    },
+    {
+      "type": "tool_call",
+      "content": "hello.py",
+      "toolName": "read_file",
+      "annotation": "Dedicated read tool provides cleaner file access"
+    },
+    {
+      "type": "tool_result",
+      "content": "print(\"Hello, World!\")",
+      "toolName": "read_file",
+      "annotation": "File contents returned to the model"
+    },
+    {
+      "type": "tool_call",
+      "content": "hello.py\n---\ndef greet(name):\n    print(f\"Hello, {name}!\")\n\ngreet(\"World\")",
+      "toolName": "write_file",
+      "annotation": "write_file replaces the entire file content"
+    },
+    {
+      "type": "tool_result",
+      "content": "File written successfully",
+      "toolName": "write_file",
+      "annotation": "Write confirmed"
+    },
+    {
+      "type": "assistant_text",
+      "content": "I've updated hello.py with a greet(name) function that takes a name parameter.",
+      "annotation": "4 tools beat 1: each tool has a clear, focused purpose"
     }
   ]
 }

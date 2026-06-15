@@ -14,12 +14,16 @@ import s05Annotations from "@/data/annotations/s05.json";
 import s06Annotations from "@/data/annotations/s06.json";
 import s07Annotations from "@/data/annotations/s07.json";
 import s08Annotations from "@/data/annotations/s08.json";
+import s09Annotations from "@/data/annotations/s09.json";
 import s10Annotations from "@/data/annotations/s10.json";
 import s11Annotations from "@/data/annotations/s11.json";
 import s12Annotations from "@/data/annotations/s12.json";
 import s13Annotations from "@/data/annotations/s13.json";
+import s14Annotations from "@/data/annotations/s14.json";
 import s15Annotations from "@/data/annotations/s15.json";
 import s16Annotations from "@/data/annotations/s16.json";
+import s17Annotations from "@/data/annotations/s17.json";
+import s18Annotations from "@/data/annotations/s18.json";
 import s19Annotations from "@/data/annotations/s19.json";
 import s20Annotations from "@/data/annotations/s20.json";
 
@@ -46,12 +50,16 @@ const ANNOTATIONS: Record<string, AnnotationFile> = {
   s06: s06Annotations as AnnotationFile,
   s07: s07Annotations as AnnotationFile,
   s08: s08Annotations as AnnotationFile,
+  s09: s09Annotations as AnnotationFile,
   s10: s10Annotations as AnnotationFile,
   s11: s11Annotations as AnnotationFile,
   s12: s12Annotations as AnnotationFile,
   s13: s13Annotations as AnnotationFile,
+  s14: s14Annotations as AnnotationFile,
   s15: s15Annotations as AnnotationFile,
   s16: s16Annotations as AnnotationFile,
+  s17: s17Annotations as AnnotationFile,
+  s18: s18Annotations as AnnotationFile,
   s19: s19Annotations as AnnotationFile,
   s20: s20Annotations as AnnotationFile,
 };
