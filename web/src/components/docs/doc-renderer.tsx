@@ -40,6 +40,13 @@ function postProcessHtml(html: string): string {
     '<pre class="ascii-diagram"><code$1>'
   );
 
+  // Wrap mermaid-rendered SVGs in a figure card
+  html = html.replace(
+    /<img src="(\/course-assets\/[^/]+\/mermaid-\d+\.svg)"([^>]*?)\s*\/?>/g,
+    (_match, src, attrs) =>
+      `<figure class="mermaid-figure"><img src="${src}"${attrs} loading="lazy" /></figure>`
+  );
+
   // Keep wide Markdown tables inside the prose column on small screens.
   html = html.replace(/<table>/g, '<div class="table-scroll"><table>');
   html = html.replace(/<\/table>/g, '</table></div>');

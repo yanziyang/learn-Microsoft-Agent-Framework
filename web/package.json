@@ -27,6 +27,7 @@
     "unified": "^11.0.5"
   },
   "devDependencies": {
+    "@mermaid-js/mermaid-cli": "^11.4.0",
     "@tailwindcss/postcss": "^4",
     "@types/diff": "^7.0.2",
     "@types/node": "^20",

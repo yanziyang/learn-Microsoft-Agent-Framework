@@ -254,6 +254,28 @@ body {
   color: #c7d2fe;
 }
 
+/* -- Rendered mermaid diagram cards -- */
+
+.prose-custom figure.mermaid-figure {
+  margin: 1.5rem 0;
+  padding: 1rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+  text-align: center;
+}
+
+.prose-custom figure.mermaid-figure img {
+  max-width: 100%;
+  height: auto;
+  display: inline-block;
+}
+
+.dark .prose-custom figure.mermaid-figure {
+  background: linear-gradient(135deg, #1e1b4b, #172554);
+  border-color: #312e81;
+}
+
 /* -- Inline code -- */
 
 .prose-custom :not(pre) > code {

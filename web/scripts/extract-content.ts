@@ -8,6 +8,7 @@ import type {
   ChapterImage,
 } from "../src/types/agent-data";
 import { VERSION_META, VERSION_ORDER, LEARNING_PATH } from "../src/lib/constants";
+import { renderMermaidToSvg } from "./render-mermaid";
 
 const WEB_DIR = path.resolve(__dirname, "..");
 const REPO_ROOT = path.resolve(WEB_DIR, "..");
@@ -370,11 +371,54 @@ function localeReadmeName(locale: Locale): string {
   return `README.${locale}.md`;
 }
 
-function rewriteChapterMarkdown(
+// ── Mermaid processing ──────────────────────────────────────────────
+
+const mermaidSvgs = new Map<string, string[]>();
+
+export async function processMermaid(
+  content: string,
+  chapterDirName: string
+): Promise<string> {
+  const blocks: string[] = [];
+  let blockIndex = 0;
+
+  const processed = content.replace(
+    /```mermaid\r?\n([\s\S]*?)```/g,
+    (_match: string, mermaidCode: string) => {
+      blocks.push(mermaidCode.trim());
+      return `<mermaid-placeholder-${blockIndex++}/>`;
+    }
+  );
+
+  if (blocks.length === 0) return processed;
+
+  if (!mermaidSvgs.has(chapterDirName)) {
+    const urls: string[] = [];
+    for (let i = 0; i < blocks.length; i++) {
+      const url = await renderMermaidToSvg(blocks[i], chapterDirName, i + 1);
+      urls.push(url);
+    }
+    mermaidSvgs.set(chapterDirName, urls);
+  }
+
+  const urls = mermaidSvgs.get(chapterDirName)!;
+  let result = processed;
+  for (let i = 0; i < urls.length; i++) {
+    result = result.replace(
+      `<mermaid-placeholder-${i}/>`,
+      `<img src="/${urls[i]}" alt="Diagram" />`
+    );
+  }
+  return result;
+}
+
+// ── Markdown rewriting ──────────────────────────────────────────────
+
+async function rewriteChapterMarkdown(
   content: string,
   chapter: ChapterSource,
   locale: Locale
-): string {
+): Promise<string> {
   let next = content;
 
   // Fix old numbering in H1 title: replace "# sNN:" with the correct chapter ID
@@ -433,6 +477,8 @@ function rewriteChapterMarkdown(
   for (const [old, rep] of Object.entries(PROJECT_RENAMES)) {
     next = next.replaceAll(old, rep);
   }
+
+  next = await processMermaid(next, chapter.dirName);
 
   return next;
 }
@@ -573,7 +619,7 @@ function buildLegacyVersions(): AgentVersion[] {
   return versions;
 }
 
-function buildRootDocs(chapters: ChapterSource[]): DocContent[] {
+async function buildRootDocs(chapters: ChapterSource[]): Promise<DocContent[]> {
   const docs: DocContent[] = [];
   const locales: Locale[] = ["en", "zh"];
 
@@ -596,7 +642,7 @@ function buildRootDocs(chapters: ChapterSource[]): DocContent[] {
 
       if (!raw) continue;
 
-      const content = rewriteChapterMarkdown(raw, chapter, locale);
+      const content = await rewriteChapterMarkdown(raw, chapter, locale);
       docs.push({
         version: chapter.id,
         locale,
@@ -684,7 +730,7 @@ function sortVersions(versions: AgentVersion[]) {
   );
 }
 
-function main() {
+async function main() {
   console.log("Extracting course content...");
   console.log(`  Repo root: ${REPO_ROOT}`);
 
@@ -719,7 +765,7 @@ function main() {
   const versions = useRootTrack
     ? buildRootVersions(rootChapters, classToolMap)
     : buildLegacyVersions();
-  const docs = useRootTrack ? buildRootDocs(rootChapters) : buildLegacyDocs();
+  const docs = useRootTrack ? await buildRootDocs(rootChapters) : buildLegacyDocs();
 
   sortVersions(versions);
   computeNewTools(versions);
@@ -742,4 +788,4 @@ function main() {
   }
 }
 
-main();
+main().catch(console.error);
