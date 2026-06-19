@@ -5,7 +5,7 @@
   "steps": [
     {
       "type": "system_event",
-      "content": "appsettings.json: { baseUrl: \"https://api.openai.com/v1\", modelId: \"gpt-4o-mini\" }",
+      "content": "appsettings.json: { baseUrl: \"https://api.deepseek.com/v1\", modelId: \"deepseek-chat\" }",
       "annotation": "Configuration selects the provider endpoint and model."
     },
     {
@@ -20,7 +20,7 @@
     },
     {
       "type": "system_event",
-      "content": "switch provider: baseUrl -> \"https://api.anthropic.com/v1\", modelId -> \"claude-sonnet-4-20250514\"",
+      "content": "switch provider: baseUrl -> \"https://api.openai.com/v1\", modelId -> \"gpt-4o-mini\"",
       "annotation": "Changing two config values routes all calls to a different provider."
     },
     {

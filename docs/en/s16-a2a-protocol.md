@@ -4,7 +4,7 @@
 
 > *Standardized agent communication across services.*
 >
-> **Protocol layer**: A2A `AgentCard` -- discover and communicate with remote agents.
+> **Protocol layer**: `A2AAgent`, `AgentCard`, `AddA2AServer`, `MapA2AHttpJson`.
 
 ## Problem
 
@@ -14,54 +14,86 @@ Agents running in different services or organizations need a standard way to dis
 
 ```mermaid
 graph LR
-    A[Agent A] -->|A2A Protocol| B[Agent Card]
-    B -->|Capabilities| A
-    A -->|Task Request| C[Agent B]
-    C -->|Task Response| A
+    A[A2AAgent Client] -->|POST /a2a/weather| B[A2A Server]
+    B -->|RunAsync| C[ChatClientAgent]
+    C -->|Response| B
+    B -->|JSON-RPC result| A
+    A -->|GET /card| B
+    B -->|AgentCard JSON| A
 ```
 
-The A2A protocol defines a standard for agent discovery (`AgentCard`) and task exchange.
+MAF ships dedicated A2A packages: `Microsoft.Agents.AI.A2A` (client) and `Microsoft.Agents.AI.Hosting.A2A.AspNetCore` (server). The server exposes an agent via A2A HTTP+JSON endpoints; the client wraps a remote agent as a local `AIAgent`.
 
 ## How It Works
 
-1. Define an `AgentCard` that describes your agent:
+1. **Server side** — register an agent and attach an A2A server:
 
 ```csharp
-var agentCard = new AgentCard
+builder.AddAIAgent("weather-agent",
+    instructions: "You are a weather assistant.",
+    chatClient: chatClient);
+builder.AddA2AServer("weather-agent");
+```
+
+2. Map A2A HTTP+JSON endpoints:
+
+```csharp
+app.MapA2AHttpJson("weather-agent", "/a2a/weather");
+```
+
+3. Define an `AgentCard` describing the agent's capabilities:
+
+```csharp
+var card = new AgentCard
 {
-    Name = "ResearchAgent",
-    Description = "Researches topics and returns structured findings",
-    Url = "https://api.example.com/agents/research",
-    Capabilities = new[] { "research", "summarize" }
+    Name = "WeatherAgent",
+    Description = "Provides weather information",
+    Version = "1.0",
+    Capabilities = new A2A.AgentCapabilities { Streaming = true },
+    Skills = [new A2A.AgentSkill { Id = "weather-lookup", Name = "weather-lookup",
+        Description = "Get current weather", Tags = ["weather"] }],
 };
 ```
 
-2. Agents discover each other via their cards:
+4. **Client side** — create an `A2AAgent` and call it like any `AIAgent`:
 
 ```csharp
-// Client discovers a remote agent
-var remoteCard = await A2AClient.DiscoverAsync("https://api.example.com/.well-known/agent.json");
+IA2AClient a2aClient = new A2AClient(
+    new Uri("http://localhost:5161/a2a/weather"), new HttpClient());
+
+AIAgent remoteAgent = a2aClient.AsAIAgent(
+    name: "RemoteWeatherAgent",
+    description: "Calls the weather agent via A2A");
+
+var response = await remoteAgent.RunAsync("What is the weather in London?");
 ```
 
-3. Send tasks to remote agents:
+5. `A2AAgent` IS-A `AIAgent` — compose it as a tool, place it in a workflow, or use it in any MAF orchestration.
 
-```csharp
-var result = await A2AClient.SendTaskAsync(remoteCard.Url, new A2ATask
-{
-    Message = "Research quantum computing trends"
-});
+## Protocol Anatomy
+
 ```
-
-4. The protocol handles serialization, capability negotiation, and response routing.
+Client                          Server
+  │                               │
+  │── GET /a2a/weather/card ────→│  (discover AgentCard)
+  │←────── AgentCard JSON ───────│
+  │                               │
+  │── POST /a2a/weather ────────→│  (JSON-RPC: message/send)
+  │                               │  → agent.RunAsync(...)
+  │←──── JSON-RPC result ────────│
+  │                               │
+  Streaming: message/stream → SSE
+```
 
 ## Key APIs
 
-| API | Purpose |
-|-----|---------|
-| `AgentCard` | Describes an agent's identity and capabilities |
-| `A2AClient.DiscoverAsync()` | Find remote agents via well-known URLs |
-| `A2AClient.SendTaskAsync()` | Send a task to a remote agent |
-| A2A Protocol | Standardized inter-agent communication |
+| API | Package | Purpose |
+|-----|---------|---------|
+| `A2AClient` | `A2A` | Client for A2A protocol communication |
+| `IA2AClient.AsAIAgent()` | `Microsoft.Agents.AI.A2A` | Wrap a remote agent as a local `AIAgent` |
+| `AgentCard` | `A2A` | Published metadata: name, capabilities, skills |
+| `AddA2AServer()` | `Microsoft.Agents.AI.Hosting.A2A` | Register an A2A server for an agent |
+| `MapA2AHttpJson()` | `Microsoft.Agents.AI.Hosting.A2A.AspNetCore` | Map A2A HTTP+JSON endpoints |
 
 ## Try It
 
@@ -69,6 +101,4 @@ var result = await A2AClient.SendTaskAsync(remoteCard.Url, new A2ATask
 dotnet run --project s16_a2a_protocol
 ```
 
-Prompts to try:
-1. `Discover available agents`
-2. `Send a research task to the remote agent`
+The demo hosts a weather agent via A2A, then calls it through an `A2AAgent` client — demonstrating both server and client sides of the protocol.

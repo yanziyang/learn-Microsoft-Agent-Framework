@@ -1,124 +1,84 @@
-# s05: TodoWrite — An Agent Without a Plan Drifts Off Course
+# s07: Agent Planning with TodoWrite
 
-[中文](README.md) · [English](README.en.md) · [日本語](README.ja.md)
+`[ s01 ] s02 > s03 > s04 > s05 > s06 | [ s07 ] s08 > s09 > s10 > s11 > s12`
 
-s01 → s02 → s03 → s04 → `s05` → [s06](../s06_subagent/) → s07 → ... → s20
-
-> *"An agent without a plan goes wherever the wind blows"* — List the steps first, then execute. Complex tasks are less likely to miss steps.
+> *Break complex tasks into tracked steps.*
 >
-> **Harness Layer**: Planning — Let the Agent think before it acts.
+> **Planning layer**: Custom `todo_write` tool for stateful task tracking.
 
----
+## Problem
 
-## The Problem
+Complex tasks require multi-step planning. Without structured state, agents lose track of what's done, what's pending, and what comes next.
 
-Give the Agent a complex task: "Rename all Python files to snake_case, run tests, and fix failures."
+## Solution
 
-The Agent starts working, renames 3 files, runs a test, finds 2 failures, starts fixing. While fixing, it forgets the original goal was "rename to snake_case", the test failures have consumed all its attention.
+```mermaid
+graph TD
+    A[Complex Task] --> B[todo_write: Create Plan]
+    B --> C[Step 1: Execute]
+    C --> D[todo_write: Mark Done]
+    D --> E[Step 2: Execute]
+    E --> F[todo_write: Mark Done]
+    F --> G[Complete]
+```
 
-The longer the conversation, the worse it gets: tool results keep filling the context, diluting the system prompt's influence. A 10-step refactoring: after steps 1-3, the Agent starts improvising because steps 4-10 have been pushed out of its attention.
-
----
-
-## The Solution
-
-![Todo Overview](images/todo-overview.en.svg)
-
-The minimal hook structure from the previous chapter is preserved, focusing on the new `todo_write` tool and reminder mechanism. `todo_write` does no actual work, can't read files or run commands, it simply lets the Agent organize its thoughts before diving in.
-
-The dispatch mechanism is unchanged; the new tool is still routed through `TOOL_HANDLERS[block.name]`. However, to demonstrate the todo reminder, a counter was added to the loop: after 3 consecutive rounds without calling `todo_write`, a reminder is injected.
-
----
+A custom `todo_write` tool lets the agent maintain a structured task list that persists across conversation turns.
 
 ## How It Works
 
-**The todo_write tool** accepts a list with statuses, keeps it in the current process memory, and displays progress in the terminal:
+1. Define the todo state and tool:
 
 ```csharp
-var state = new TodoTools.TodoState();
+var todoState = new List<(string content, string status)>();
 
-TodoTools.Register(tools, state);
-```
-
-The tool definition joins the other 5 in the dispatch map:
-
-```csharp
-BashTool.Register(tools, workDir);
-FileTools.Register(tools, workDir);
-TodoTools.Register(tools, state);   // s05: new tool
-```
-
-**Nag reminder**, when the model hasn't called `todo_write` for 3 consecutive rounds, a reminder is automatically injected (teaching mechanism; CC source has no fixed round-count logic):
-
-```csharp
-if (++roundsSinceTodo >= 3 && messages.Count > 0)
+[Description("Add a todo item")]
+static string TodoWrite(
+    [Description("List of todos as content|status lines")] string items,
+    List<(string, string)> state)
 {
-    messages.Add(Message.UserText("<reminder>Update your todos.</reminder>"));
-    roundsSinceTodo = 0;
+    state.Clear();
+    foreach (var line in items.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+    {
+        var parts = line.Split('|', 2);
+        state.Add((parts[0].Trim(), parts.Length > 1 ? parts[1].Trim() : "pending"));
+    }
+    return $"Updated: {state.Count} items";
 }
 ```
 
-Typical flow when the Agent receives a task: first call `todo_write` to list all steps (all `pending`) → pick one step, set it to `in_progress` → complete it, set to `completed` → look at the next `pending` → continue. After 3 rounds without `todo_write`, the loop appends a reminder before the next LLM call.
+2. Register as a tool via `AIFunctionFactory`:
 
-**Key insight**: todo_write doesn't give the Agent any additional **execution capability**. What it adds is **planning capability**.
+```csharp
+var todoTool = AIFunctionFactory.Create(
+    (string items) => TodoWrite(items, todoState),
+    name: "todo_write",
+    description: "Manage a todo list. Format: one 'content|status' per line.");
+tools.Add(todoTool);
+```
 
----
+3. The agent uses `todo_write` to plan and track progress:
 
-## Changes from s04
+```
+User: "Refactor the auth module and add tests"
+Agent calls: todo_write("Refactor auth service|pending\nWrite unit tests|pending\nRun tests|pending")
+Agent calls: todo_write("Refactor auth service|done\nWrite unit tests|pending\nRun tests|pending")
+```
 
-| Component | Before (s04) | After (s05) |
-|-----------|-------------|-------------|
-| Tool count | 5 (bash, read, write, edit, glob) | 6 (+todo_write) |
-| Planning | None | Stateful TODO list + nag reminder |
-| SYSTEM prompt | Generic prompt | Added "plan before executing" guidance |
-| Loop | Unchanged | Dispatch unchanged, added rounds_since_todo counter and reminder injection |
+## Key APIs
 
----
+| API | Purpose |
+|-----|---------|
+| `AIFunctionFactory.Create()` | Register the todo tool |
+| `todo_write` | Custom tool name the LLM calls |
+| Closure capture | Share `todoState` between tool and main code |
+| `[Description]` | Tells the LLM the expected format |
 
 ## Try It
 
 ```sh
-cd learn-claude-code
-dotnet run --project s05_todo_write
+dotnet run --project s07_planning
 ```
 
-Try these prompts:
-
-1. `Refactor s05_todo_write/example/hello.py: add type hints, docstrings, and a main guard` (should list 3 steps first, then execute)
-2. `Create a Python package under s05_todo_write/example/demo_pkg with __init__.py, utils.py, and tests/test_utils.py`
-3. `Review Python files under s05_todo_write/example and fix any style issues`
-
-What to watch for: Was the first tool call `todo_write`? How many TODO steps were listed? Did statuses move from `pending` to `in_progress` / `completed` during execution?
-
----
-
-## What's Next
-
-The Agent can plan now. But if a task is too large, say "refactor the entire auth module", a TODO list alone isn't enough. That task is itself a collection of dozens of subtasks that would drown in a single conversation's context.
-
-→ s06 Subagent: Break large tasks into subtasks, each handled by an independent Agent with its own clean context, no cross-contamination.
-
-<details>
-<summary>Dive into CC Source Code</summary>
-
-CC has two task systems coexisting (`tasks.ts:133-139`):
-
-- **TodoWrite (V1)**: A simple list tool, data maintained in memory AppState (`TodoWriteTool.ts:65-103`). The teaching version also keeps it in process memory and clears it on exit.
-- **Task System (V2 = s12)**: File-persisted, dependency graph, concurrency locks, ownership.
-
-The switch is controlled by `isTodoV2Enabled()`. In the current source: V2 is enabled by default in interactive sessions, V1 in non-interactive (SDK) sessions; setting `CLAUDE_CODE_ENABLE_TASKS` forces V2 regardless. Note the source comment "Force-enable tasks in non-interactive mode" describes the env var path's purpose, not the default branch's return semantics.
-
-The teaching version omits the `activeForm` field from the real source (`utils/todo/types.ts:8-15`). CC uses it for the UI spinner to show "what's being done"; the teaching version only has terminal output and doesn't need this field.
-
-The teaching version's nag reminder (3 rounds without update triggers injection) is an educational mechanism. The CC source has no fixed "3 rounds" logic; the closest is `TodoWriteTool.ts:72-107` which appends a verification nudge when 3+ todos are all completed without a verification item.
-
-Core increments of the Task System over TodoWrite:
-- File persistence (Claude config directory `tasks/{taskListId}/{taskId}.json`) instead of in-memory list
-- `blockedBy` dependency graph instead of flat list
-- `proper-lockfile` concurrency safety instead of no locking
-- Four separate tools (Create/Get/Update/List) instead of one
-- TaskCreated / TaskCompleted hooks (`TaskCreateTool.ts:80-129`, `TaskUpdateTool.ts:231-260`) for external system integration
-
-</details>
-
-<!-- translation-sync: zh@v1, en@v1, ja@v1 -->
+Prompts to try:
+1. `Create a plan to build a hello-world web app`
+2. `Mark the first task as done and add a new task for deployment`

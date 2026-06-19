@@ -7,86 +7,90 @@ using OpenAI;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 
-// --- Configuration ---
+// ── Config ──
 var config = new ConfigurationBuilder()
     .AddJsonFile("appsettings.json", optional: true)
     .AddEnvironmentVariables()
     .Build();
-var baseUrl = config["baseUrl"] ?? "https://api.openai.com/v1";
-var apiKey = config["apiKey"] ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? throw new Exception("No API key. Set OPENAI_API_KEY or configure appsettings.json");
-var modelId = config["modelId"] ?? "gpt-4o-mini";
+var baseUrl = config["baseUrl"] ?? "https://api.deepseek.com/v1";
+var apiKey = config["apiKey"] ?? Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY") ?? throw new InvalidOperationException("No API key. Set apiKey in appsettings.json or DEEPSEEK_API_KEY env var.");
+var modelId = config["modelId"] ?? "deepseek-chat";
 
-// --- IChatClient ---
-var client = new OpenAIClient(new ApiKeyCredential(apiKey), new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })
+// ── IChatClient ──
+IChatClient chatClient = new OpenAIClient(new ApiKeyCredential(apiKey),
+    new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })
     .GetChatClient(modelId).AsIChatClient();
 
-// --- Dangerous tool definition ---
+// ── Safe tool: executes immediately, no approval needed ──
+[Description("Get the current weather for a city")]
+static string GetWeather([Description("City name")] string city) =>
+    city.ToLower() switch
+    {
+        "london" => "London: 15°C, cloudy",
+        "tokyo" => "Tokyo: 28°C, sunny",
+        _ => $"{city}: 22°C, partly cloudy"
+    };
+
+// ── Dangerous tool: wrapped with ApprovalRequiredAIFunction ──
+// The framework intercepts calls to this tool and emits ToolApprovalRequestContent
+// instead of executing. The caller must approve/deny via CreateResponse().
 [Description("Delete a file from the filesystem")]
 static string DeleteFile([Description("Path to the file to delete")] string path) =>
     $"File '{path}' has been deleted successfully.";
 
-// --- Wrap with approval requirement ---
-var dangerousTool = new ApprovalRequiredAIFunction(AIFunctionFactory.Create(DeleteFile));
-
-// --- Build pipeline with function invocation ---
-var chatClient = new FunctionInvokingChatClient(client);
-
-// --- Agent setup ---
-var agent = new ChatClientAgent(chatClient,
-    instructions: "You are a file management assistant. You can delete files when asked.",
+// ── Agent with both safe and gated tools ──
+// AsAIAgent registers tools so the model can call them.
+// ApprovalRequiredAIFunction wraps DeleteFile so it pauses for human approval.
+AIAgent agent = chatClient.AsAIAgent(
+    instructions: "You are a file management assistant. You can check weather and delete files when asked.",
     name: "file-manager",
-    description: "A file management assistant",
-    tools: [dangerousTool]);
+    tools:
+    [
+        AIFunctionFactory.Create(GetWeather),                              // safe — no approval
+        new ApprovalRequiredAIFunction(AIFunctionFactory.Create(DeleteFile)) // gated — requires approval
+    ]);
 
-// --- Interactive approval loop ---
+// ── Approval loop using ToolApprovalRequestContent ──
 Console.WriteLine("s05: Permission — tool approval with ApprovalRequiredAIFunction");
-Console.WriteLine("The agent will ask for permission before deleting files.\n");
+Console.WriteLine("Safe tools (GetWeather) execute immediately; dangerous tools (DeleteFile) require approval.\n");
 
-var query = "Please delete the file 'temp.txt' and then delete 'old_data.csv'";
+var query = "What's the weather in Tokyo? Also delete the file 'temp.txt'.";
 Console.WriteLine($">>> User: {query}\n");
 
-var messages = new List<ChatMessage> { new(ChatRole.User, query) };
-var options = new ChatOptions { Tools = [dangerousTool] };
+// Create a session and run the first turn
+AgentSession session = await agent.CreateSessionAsync();
+AgentResponse response = await agent.RunAsync(query, session);
 
-while (true)
+// Check for approval requests in the response
+List<ToolApprovalRequestContent> approvalRequests =
+    response.Messages.SelectMany(m => m.Contents).OfType<ToolApprovalRequestContent>().ToList();
+
+// Loop until all approval requests are resolved
+while (approvalRequests.Count > 0)
 {
-    var response = await chatClient.GetResponseAsync(messages, options);
-    messages.AddMessages(response);
-
-    // Check for approval requests
-    var approvalRequests = response.Messages
-        .SelectMany(m => m.Contents)
-        .OfType<FunctionCallContent>()
-        .Where(fc => dangerousTool.Name.Equals(fc.Name, StringComparison.OrdinalIgnoreCase))
-        .ToList();
-
-    if (approvalRequests.Count == 0)
+    // Ask the user to approve each pending function call
+    List<ChatMessage> approvalResponses = approvalRequests.ConvertAll(req =>
     {
-        // No more approval requests — show final response
-        Console.WriteLine($"<<< Agent: {response.Text}");
-        break;
-    }
+        var toolCall = (FunctionCallContent)req.ToolCall;
+        var args = string.Join(", ", toolCall.Arguments?.Select(a => $"{a.Key}={a.Value}") ?? []);
+        Console.Write($"[APPROVAL] Allow {toolCall.Name}({args})? (y/n): ");
+        var approved = Console.ReadLine()?.Trim().Equals("y", StringComparison.OrdinalIgnoreCase) ?? false;
+        Console.WriteLine(approved ? "  → Approved" : "  → Denied");
+        return new ChatMessage(ChatRole.User, [req.CreateResponse(approved)]);
+    });
 
-    // Process each approval request
-    foreach (var request in approvalRequests)
-    {
-        var filePath = request.Arguments?["path"]?.ToString() ?? "unknown";
-        Console.Write($"[APPROVAL] Allow deletion of '{filePath}'? (y/n): ");
-        var answer = Console.ReadLine()?.Trim().ToLower();
-
-        if (answer is "y" or "yes")
-        {
-            // Execute the tool and return result
-            var result = DeleteFile(filePath);
-            Console.WriteLine($"[APPROVED] {result}");
-            messages.Add(new ChatMessage(ChatRole.Tool, result));
-        }
-        else
-        {
-            // Reject the tool call
-            var rejection = $"Tool call '{request.Name}' for '{filePath}' was denied by the user.";
-            Console.WriteLine($"[REJECTED] {rejection}");
-            messages.Add(new ChatMessage(ChatRole.Tool, rejection));
-        }
-    }
+    // Feed approval/denial back to the agent for continued processing
+    response = await agent.RunAsync(approvalResponses, session);
+    approvalRequests = response.Messages.SelectMany(m => m.Contents).OfType<ToolApprovalRequestContent>().ToList();
 }
+
+// Final response
+Console.WriteLine($"\n<<< Agent: {response.Text}");
+
+// ── Streaming variant (commented) ──
+// For streaming, collect updates and check for approval requests:
+//
+// var updates = await agent.RunStreamingAsync(query, session).ToListAsync();
+// approvalRequests = updates.SelectMany(u => u.Contents).OfType<ToolApprovalRequestContent>().ToList();
+// while (approvalRequests.Count > 0) { ... same approval loop ... }
+// Console.WriteLine($"\nAgent: {updates.ToAgentResponse()}");

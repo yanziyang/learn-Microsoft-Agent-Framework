@@ -1,195 +1,91 @@
-# s07: Skill Loading — Load Only When Needed
+# s09: Skill Loading
 
-[中文](README.md) · [English](README.en.md) · [日本語](README.ja.md)
+`[ s01 ] s02 > s03 > s04 > s05 > s06 | s07 > s08 > [ s09 ] s10 > s11 > s12`
 
-s01 → s02 → s03 → s04 → s05 → s06 → `s07` → [s08](../s08_context_compact/) → s09 → ... → s20
-> *"Load when needed, don't stuff the prompt"* — Inject via tool_result, not system prompt.
+> *Domain expertise on demand.*
 >
-> **Harness Layer**: Knowledge — load on demand, don't fill the context.
+> **Knowledge layer**: `SKILL.md` catalog + `load_skill` tool for on-demand instruction loading.
 
----
+## Problem
 
-## The Problem
+System prompts can't contain instructions for every possible domain. You need a way to inject specialized knowledge (code review rules, PDF generation steps, MCP patterns) only when needed.
 
-Your project has a React component spec, a SQL style guide, and an API design doc. You want the Agent to follow these specs automatically. The most straightforward idea — stuff them all into the system prompt:
+## Solution
 
-```csharp
-var SYSTEM =
-    $"You are a coding agent. "
-    + File.ReadAllText("docs/react-style.md")       // 2000 lines
-    + File.ReadAllText("docs/sql-style.md")         // 1500 lines
-    + File.ReadAllText("docs/api-design.md");       // 3000 lines
+```mermaid
+graph TD
+    A[User Request] --> B{Domain?}
+    B -->|code review| C[load_skill: code-review]
+    B -->|PDF work| D[load_skill: pdf]
+    B -->|general| E[Direct answer]
+    C --> F[SKILL.md content injected]
+    D --> G[SKILL.md content injected]
+    F --> H[Agent uses domain knowledge]
+    G --> H
 ```
 
-6500 lines of system prompt. The Agent carries these docs on every LLM call — whether it's changing a CSS color or fixing a SQL query. 99% of the content is irrelevant to the current task, burning tokens for nothing.
-
----
-
-## The Solution
-
-![Skill Overview](images/skill-overview.en.svg)
-
-The minimal hook structure, `todo_write`, and sub-Agent from the previous chapter are preserved. This chapter focuses on the new `load_skill` tool. At startup, inject the skill catalog into the SYSTEM prompt; at runtime, register one more tool to load full content, spending tokens only when used.
-
-Two-level design:
-
-| Level | Location | Timing | Cost |
-|-------|----------|--------|------|
-| 1. Catalog | system prompt | Injected at startup (harness scans skills/) | ~100 tokens/skill, carried every turn |
-| 2. Content | tool_result | When Agent calls load_skill; SKILL.md can guide later read_file/bash access to extra resources | ~2000 tokens/skill, on demand |
-
-The dispatch mechanism is unchanged, `load_skill` auto-dispatches via `TOOL_HANDLERS[block.name]`.
-
----
+Skills are Markdown files in `skills/` with YAML frontmatter. The `load_skill` tool reads them on demand.
 
 ## How It Works
 
-**skills/ directory**, one subdirectory per skill, each containing a `SKILL.md` file:
+1. Skill files follow this structure:
 
-```
-skills/
-  agent-builder/SKILL.md
-  code-review/SKILL.md
-  mcp-builder/SKILL.md
-  pdf/SKILL.md
+```markdown
+---
+name: code-review
+description: Code review checklist and patterns
+---
+# Code Review Skill
+## Checklist
+- [ ] Naming conventions
+- [ ] Error handling
+...
 ```
 
-**Level 1: Inject catalog at startup**: the harness calls `_scan_skills()` at startup to scan the skills/ directory, parsing each SKILL.md's YAML frontmatter (`name`, `description`) into a `SKILL_REGISTRY` dictionary. `list_skills()` generates the catalog from the registry, injected into the SYSTEM prompt. The Agent sees "which skills I have available" every turn, with no extra API calls:
+2. Build a skill catalog from the filesystem:
 
 ```csharp
-public sealed class SkillRegistry
+var skillsDir = Path.GetFullPath("skills");
+var skillCatalog = new Dictionary<string, string>();
+foreach (var dir in Directory.GetDirectories(skillsDir))
 {
-    private readonly Dictionary<string, SkillManifest> _byName = new();
+    var skillFile = Path.Combine(dir, "SKILL.md");
+    if (File.Exists(skillFile))
+        skillCatalog[Path.GetFileName(dir)] = skillFile;
+}
+```
 
-    public static SkillRegistry LoadFromDir(string skillsDir)
+3. Register the `load_skill` tool:
+
+```csharp
+var loadSkill = AIFunctionFactory.Create(
+    (string name) =>
     {
-        var reg = new SkillRegistry();
-        if (!Directory.Exists(skillsDir)) return reg;
-
-        foreach (var dir in Directory.EnumerateDirectories(skillsDir))
-        {
-            var manifest = Path.Combine(dir, "SKILL.md");
-            if (!File.Exists(manifest)) continue;
-
-            var raw = File.ReadAllText(manifest);
-            var (name, desc) = ParseFrontmatter(raw);
-            if (string.IsNullOrEmpty(name)) name = Path.GetFileName(dir);
-            reg._byName[name] = new SkillManifest
-            {
-                Name = name,
-                Description = desc,
-                FullContent = raw,
-            };
-        }
-        return reg;
-    }
-
-    public string Catalog() =>
-        string.Join("\n", _byName.Values.Select(s => $"- **{s.Name}**: {s.Description}"));
-}
-
-public sealed record SkillManifest
-{
-    public string Name { get; init; } = "";
-    public string Description { get; init; } = "";
-    public string FullContent { get; init; } = "";
-}
-
-var skills = SkillRegistry.LoadFromDir(skillsDir);  // runs once at startup
-
-var SYSTEM =
-    $"You are a coding agent at {workDir}. " +
-    "Skills available:\n" + skills.Catalog() + "\n" +
-    "Use load_skill to get full details when needed.";
+        if (skillCatalog.TryGetValue(name, out var path))
+            return File.ReadAllText(path);
+        return $"Skill '{name}' not found. Available: {string.Join(", ", skillCatalog.Keys)}";
+    },
+    name: "load_skill",
+    description: "Load a skill by name for detailed instructions.");
 ```
 
-**Level 2: load_skill**: the Agent decides "I need the SQL style guide" and calls `load_skill("sql-style")`. Lookup goes through the registry, not file paths, eliminating path traversal risk. The SKILL.md content is injected via `tool_result`, and can include later access to referenced `references/`, `scripts/`, or `assets/` through the existing file and bash tools.
+4. Two-level loading: agent catalogs first, then loads details on demand.
 
-```csharp
-public static string LoadSkill(string name, SkillRegistry registry)
-{
-    var skill = registry.Get(name);
-    return skill is null ? $"Skill not found: {name}" : skill.FullContent;
-}
-```
+## Key APIs
 
-The key distinction: skill content is not part of the system prompt. It enters the current messages as a tool result. Subsequent calls carry it along with the history until context compaction, truncation, or session end. This naturally connects to s08's compact: on-demand loading solves "don't carry what you shouldn't", compact solves "how to drop what you should."
-
----
-
-## Changes from s06
-
-| Component | Before (s06) | After (s07) |
-|-----------|-------------|-------------|
-| Tool count | 7 (bash, read, write, edit, glob, todo_write, task) | 8 (+load_skill) |
-| Knowledge loading | None | Two-level: startup catalog in SYSTEM + runtime load_skill; SKILL.md may guide later resource access |
-| SYSTEM prompt | Static string | Startup scan of skills/ injects catalog |
-| Skill registry | None | SKILL_REGISTRY (populated at startup, prevents path traversal) |
-| Loop | Unchanged | Unchanged (skill tool auto-dispatches) |
-
----
+| API | Purpose |
+|-----|---------|
+| `SKILL.md` | Markdown skill definition with YAML frontmatter |
+| `load_skill` | Custom tool to load skill content |
+| `AIFunctionFactory.Create()` | Register the loader as a tool |
+| `skills/` directory | Skill catalog location |
 
 ## Try It
 
 ```sh
-cd learn-claude-code
-dotnet run --project s07_skill_loading
+dotnet run --project s09_skill_loading
 ```
 
-Try these prompts:
-
-1. `What skills are available?`
-2. `Load the code-review skill and follow its instructions`
-3. `I need to do a code review -- load the relevant skill first`
-
-What to watch for: Does the Agent know available skills from the SYSTEM catalog? Does `[HOOK] load_skill` appear when full instructions are needed? Does the answer use the loaded skill's instructions?
-
----
-
-## What's Next
-
-On-demand loading solved "don't carry what you shouldn't." But another problem looms: after the Agent works for 30 minutes, the messages list fills up with intermediate process. Old tool_results, stale file contents, occupying context but adding no value.
-
-→ s08 Context Compact: A four-layer compaction strategy. Cheap layers run first, expensive layers run last.
-
-<details>
-<summary>Dive into CC Source Code</summary>
-
-> The following is based on analysis of CC source code `loadSkillsDir.ts`, `SkillTool.ts`, `bundledSkills.ts`, `commands.ts`.
-
-### 1. Skill Sources: Not Just One skills/ Directory
-
-The teaching version assumes all skills live in a `skills/` directory. CC loads from multiple sources spread across multiple files: `loadSkillsDir.ts` handles user/project/`--add-dir` directories and legacy commands (`.claude/commands/`); `bundledSkills.ts` handles built-in skills; `SkillTool.ts` handles MCP remote skills; `commands.ts` handles command aggregation. Types include managed/policy skills, user skills (`~/.claude/skills/`), project skills (`.claude/skills/`), `--add-dir` skills, legacy commands, dynamic skills, conditional skills (with `paths` frontmatter, activated by file path), bundled skills, plugin skills, MCP skills.
-
-### 2. SKILL.md Frontmatter — Common Fields
-
-CC's SKILL.md YAML frontmatter is parsed by `parseSkillFrontmatterFields()` in `loadSkillsDir.ts`. Common fields include:
-
-| Field | Purpose |
-|-------|---------|
-| `name` / `description` | Display name and description |
-| `when_to_use` | Guides the model on when to invoke |
-| `allowed-tools` | Auto-allow list of tools available to the skill |
-| `context` | `inline` (default) or `fork` (run as sub-Agent) |
-| `model` | Model override (haiku/sonnet/opus/inherit) |
-| `hooks` | Skill-level hook configuration |
-| `paths` | Glob patterns for conditional activation |
-| `user-invocable` | Users can invoke via `/name` |
-
-The complete field list changes across versions; above are the core fields relevant to the teaching version.
-
-### 3. Precise Implementation of Two-Level Loading
-
-1. **Catalog (at startup)**: `getSkillDirCommands()` scans directory → registers as `Command` objects containing only metadata. `getSkillListingAttachments()` formats the skill list as attachments, budgeted at ~1% of the context window (cap 8000 characters).
-2. **Load (on invocation)**: Model calls `Skill` tool (input fields are `skill` + optional `args`; teaching version uses `name`) → `getPromptForCommand()` expands full SKILL.md content → `SkillTool` returns a tool_result with display text `"Launching skill: {name}"`, while the actual skill content is injected via `newMessages`. The teaching version merges both into "injected via tool_result" as a simplification; the loaded SKILL.md can still guide later access to referenced resources through existing file/bash tools.
-
-### The Teaching Version's Simplification Is Intentional
-
-- Multiple files and sources → 1 `skills/` directory: sufficient to demonstrate the core concept of two-level loading
-- Multiple frontmatter fields → only parse name/description: reduces parsing complexity
-- Forked skills (`context: 'fork'`) → omitted: the teaching version only expands inline skill loading
-- `Skill` tool input `skill`+`args` → teaching version uses `name`: avoids extra argument parsing complexity
-
-</details>
-
-<!-- translation-sync: zh@v2, en@v2, ja@v2 -->
+Prompts to try:
+1. `Load the code-review skill and review this function: int Add(int a, int b) => a + b;`
+2. `What skills are available?` (lists catalog)

@@ -1,247 +1,104 @@
-# s16: Team Protocols — Teammates Need Agreements
+# s16: Agent-to-Agent (A2A) Protocol
 
-[中文](README.md) · [English](README.en.md) · [日本語](README.ja.md)
+`[ s01 ] s02 > s03 > s04 > s05 > s06 | s07 > s08 > s09 > s10 > s11 > s12 | s13 > s14 > s15 > [ s16 ] s17`
 
-s01 → ... → s14 → s15 → `s16` → [s17](../s17_autonomous_agents/) → s18 → s19 → s20
-> *"Teammates need agreements"* — request-response pattern drives all negotiation.
+> *Standardized agent communication across services.*
 >
-> **Harness Layer**: Protocols — Structured handshakes between agents.
+> **Protocol layer**: `A2AAgent`, `AgentCard`, `AddA2AServer`, `MapA2AHttpJson`.
 
----
+## Problem
 
-## The Problem
+Agents running in different services or organizations need a standard way to discover capabilities and exchange messages. Ad-hoc APIs create integration nightmares.
 
-s15's teammates can work, but coordination is loose: Lead sends a message, teammate replies, no structured protocol. Two scenarios expose the gap:
+## Solution
 
-**Shutdown**: Lead wants Alice to shut down. Killing the thread outright leaves half-written files on disk. A handshake is needed: Lead sends a request, Alice confirms after wrapping up.
+```mermaid
+graph LR
+    A[A2AAgent Client] -->|POST /a2a/weather| B[A2A Server]
+    B -->|RunAsync| C[ChatClientAgent]
+    C -->|Response| B
+    B -->|JSON-RPC result| A
+    A -->|GET /card| B
+    B -->|AgentCard JSON| A
+```
 
-**Plan approval**: Bob wants to refactor the auth module, a high-risk operation. Lead should review Bob's plan first, approve before Bob proceeds.
-
-Both scenarios share the same structure: one side sends a request, the other replies, both linked by the same ID. A state machine tracks: pending → approved / rejected.
-
----
-
-## The Solution
-
-![Team Protocols Overview](images/team-protocols-overview.en.svg)
-
-Teaching code continues the agent capability arc from earlier chapters and adds structured protocols on top of S15's team communication. To stay focused on the protocol mechanism, it omits full error recovery, memory, and skill systems. Added: **ProtocolState** (request state tracking), **dispatch_message** (routes incoming messages by type to handlers), **match_response** (correlates response to request via request_id, with type validation).
-
-Two protocols, one mechanism:
-
-| Protocol | Direction | Purpose |
-|----------|-----------|---------|
-| shutdown_request / response | Lead → Teammate | Graceful shutdown handshake |
-| plan_approval_request / response | Teammate → Lead | Plan approval protocol example |
-
-> Teaching version demonstrates the request-response message flow for plan approval, but does not implement execution gating (intercepting bash/write_file when not approved). Real CC has a permission gating mechanism for teammates.
-
----
+MAF ships dedicated A2A packages: `Microsoft.Agents.AI.A2A` (client) and `Microsoft.Agents.AI.Hosting.A2A.AspNetCore` (server). The server exposes an agent via A2A HTTP+JSON endpoints; the client wraps a remote agent as a local `AIAgent`.
 
 ## How It Works
 
-### ProtocolState: Request State
-
-Each protocol request creates a state record tracking who sent it, to whom, current status, and payload:
+1. **Server side** — register an agent and attach an A2A server:
 
 ```csharp
-public sealed record ProtocolState(
-    string RequestId,    // Unique ID, e.g. "req_004281"
-    string Type,         // "shutdown" | "plan_approval"
-    string Sender,       // Sender
-    string Target,       // Recipient
-    string Status,       // pending | approved | rejected
-    string Payload,      // Plan text or shutdown reason
-    double CreatedAt);   // Timestamp
-
-var pendingRequests = new Dictionary<string, ProtocolState>();
+builder.AddAIAgent("weather-agent",
+    instructions: "You are a weather assistant.",
+    chatClient: chatClient);
+builder.AddA2AServer("weather-agent");
 ```
 
-A record is created when sending a request, found via `request_id` when receiving a response, and its status updated.
-
-### Four-Step Protocol Flow
-
-Using shutdown as an example, the full chain:
-
-```
-1. Lead sends request
-   req_id = new_request_id()           # "req_004281"
-   pending_requests[req_id] = ProtocolState(type="shutdown", status="pending", ...)
-   BUS.send("lead", "alice", "shutdown_request", metadata={"request_id": req_id})
-
-2. Teammate receives → dispatch
-   inbox = BUS.read_inbox("alice")
-   msg_type = msg["type"]              # "shutdown_request"
-   → routed to handle_shutdown_request()
-
-3. Teammate replies
-   BUS.send("alice", "lead", "shutdown_response",
-            metadata={"request_id": req_id, "approve": True})
-
-4. Lead receives response → match
-   match_response("shutdown_response", req_id, approve=True)
-   pending_requests[req_id].status = "approved"
-```
-
-`request_id` is the correlation key across the entire chain: the request carries it out, the response carries it back.
-
-### dispatch_message: Route by Type
-
-A teammate's inbox receives both plain messages and protocol messages. `handle_inbox_message` dispatches by message type:
+2. Map A2A HTTP+JSON endpoints:
 
 ```csharp
-bool HandleInboxMessage(string name, MailboxMessage msg, List<Message> messages, MessageBus bus)
+app.MapA2AHttpJson("weather-agent", "/a2a/weather");
+```
+
+3. Define an `AgentCard` describing the agent's capabilities:
+
+```csharp
+var card = new AgentCard
 {
-    var msgType = string.IsNullOrEmpty(msg.Type) ? "message" : msg.Type;
-
-    if (msgType == "shutdown_request")
-    {
-        bus.Send(name, "lead", "Shutting down.", "shutdown_response");
-        return true;
-    }
-
-    if (msgType == "plan_approval_response")
-    {
-        var approve = msg.Content.Contains("\"approve\": true", StringComparison.Ordinal);
-        messages.Add(Message.UserText(approve ? "[Plan approved]" : "[Plan rejected]"));
-    }
-    return false;
-}
+    Name = "WeatherAgent",
+    Description = "Provides weather information",
+    Version = "1.0",
+    Capabilities = new A2A.AgentCapabilities { Streaming = true },
+    Skills = [new A2A.AgentSkill { Id = "weather-lookup", Name = "weather-lookup",
+        Description = "Get current weather", Tags = ["weather"] }],
+};
 ```
 
-Adding a new protocol type means adding a new `if` branch.
-
-### match_response: Type Validation
-
-`match_response` doesn't just find state by `request_id`, it also validates that the response type matches the request type:
+4. **Client side** — create an `A2AAgent` and call it like any `AIAgent`:
 
 ```csharp
-void MatchResponse(string responseType, string requestId, bool approve)
-{
-    if (!pendingRequests.TryGetValue(requestId, out var state)) return;
-    if (state.Type == "shutdown" && responseType != "shutdown_response") return;
-    if (state.Type == "plan_approval" && responseType != "plan_approval_response") return;
-    if (state.Status != "pending") return;
-    pendingRequests[requestId] = state with { Status = approve ? "approved" : "rejected" };
-}
+IA2AClient a2aClient = new A2AClient(
+    new Uri("http://localhost:5161/a2a/weather"), new HttpClient());
+
+AIAgent remoteAgent = a2aClient.AsAIAgent(
+    name: "RemoteWeatherAgent",
+    description: "Calls the weather agent via A2A");
+
+var response = await remoteAgent.RunAsync("What is the weather in London?");
 ```
 
-A shutdown_response cannot accidentally approve a plan_approval request.
+5. `A2AAgent` IS-A `AIAgent` — compose it as a tool, place it in a workflow, or use it in any MAF orchestration.
 
-### Unified Inbox Consumer: consume_lead_inbox
-
-Both the `check_inbox` tool and the main loop call the same `consume_lead_inbox()` function, routing protocol messages before returning remaining content. This prevents messages from being consumed without protocol state updates:
-
-```csharp
-List<MailboxMessage> ConsumeLeadInbox(MessageBus bus, bool routeProtocol = true)
-{
-    var msgs = bus.ReadInbox("lead");
-    if (routeProtocol)
-    {
-        foreach (var msg in msgs)
-        {
-            if (!msg.Type.EndsWith("_response", StringComparison.Ordinal)) continue;
-            using var doc = JsonDocument.Parse(msg.Content);
-            var reqId = doc.RootElement.TryGetProperty("request_id", out var v) ? v.GetString() ?? "" : "";
-            if (string.IsNullOrEmpty(reqId)) continue;
-            var approve = doc.RootElement.TryGetProperty("approve", out var a) && a.ValueKind == JsonValueKind.True;
-            MatchResponse(msg.Type, reqId, approve);
-        }
-    }
-    return msgs;
-}
-```
-
-The main loop also injects inbox messages into `history` so the LLM can see and react to them.
-
-### Teammate Idle Loop: Wait Instead of Exit
-
-s15's teammates exit after 10 rounds. s16's teammates enter idle waiting after the LLM returns a non-tool_use response: poll inbox, respond to shutdown_request and exit, or continue working on new messages.
+## Protocol Anatomy
 
 ```
-LLM returns non-tool_use
-  → idle: poll inbox every second
-  → receives shutdown_request → reply shutdown_response → exit
-  → receives new message → inject into messages → continue LLM turn
+Client                          Server
+  │                               │
+  │── GET /a2a/weather/card ────→│  (discover AgentCard)
+  │←────── AgentCard JSON ───────│
+  │                               │
+  │── POST /a2a/weather ────────→│  (JSON-RPC: message/send)
+  │                               │  → agent.RunAsync(...)
+  │←──── JSON-RPC result ────────│
+  │                               │
+  Streaming: message/stream → SSE
 ```
 
-Teaching version omits idle_notification to Lead. Real CC sends `idle_notification` when idle, so Lead knows the teammate is free for new tasks.
+## Key APIs
 
-### Putting It Together
-
-```
-1. Lead: "Have Alice create a file, then shut her down"
-2. Lead → spawn_teammate("alice", "backend", "Create config.py")
-3. alice thread starts → write_file("config.py", "...") → done → idle
-4. Lead → request_shutdown("alice")
-   → BUS.send("shutdown_request", {request_id: "req_000142"})
-5. alice idle poll receives → handle_shutdown_request
-   → BUS.send("shutdown_response", {request_id: "req_000142", approve: True})
-6. Lead consume_lead_inbox → match_response("req_000142", approve=True)
-   → pending_requests["req_000142"].status = "approved"
-   → inbox message injected into history, LLM sees shutdown result
-```
-
-Shutdown handshake complete: request → confirm → shutdown. Every step tracked by `request_id`.
-
----
-
-## Changes from s15
-
-| Component | Before (s15) | After (s16) |
-|-----------|-------------|-------------|
-| Coordination | Loose text messages | Structured request-response protocol |
-| Request tracking | None | ProtocolState + pending_requests dict |
-| Message routing | All treated as text | dispatch_message routes by type |
-| Shutdown | Natural exit or kill thread | request_id handshake mechanism |
-| Plan approval | None | Message flow example (no execution gating) |
-| New message types | message, result | + shutdown_request/response, plan_approval_request/response |
-| Teammate lifecycle | Max 10 rounds | Idle loop (waits for inbox messages) |
-| Lead inbox | check_inbox and main loop read separately | Unified consume_lead_inbox |
-| Lead tools | 14 (s15) | 14 (core tool set plus request_shutdown, request_plan, review_plan) |
-| Teammate tools | 4 (s15) | + submit_plan (5) |
-
----
+| API | Package | Purpose |
+|-----|---------|---------|
+| `A2AClient` | `A2A` | Client for A2A protocol communication |
+| `IA2AClient.AsAIAgent()` | `Microsoft.Agents.AI.A2A` | Wrap a remote agent as a local `AIAgent` |
+| `AgentCard` | `A2A` | Published metadata: name, capabilities, skills |
+| `AddA2AServer()` | `Microsoft.Agents.AI.Hosting.A2A` | Register an A2A server for an agent |
+| `MapA2AHttpJson()` | `Microsoft.Agents.AI.Hosting.A2A.AspNetCore` | Map A2A HTTP+JSON endpoints |
 
 ## Try It
 
 ```sh
-cd learn-claude-code
-dotnet run --project s16_team_protocols
+dotnet run --project s16_a2a_protocol
 ```
 
-Try these prompts:
-
-1. `Spawn alice as a backend dev. Ask her to create a file. Then request her shutdown.`
-2. `Spawn bob with a refactoring task. Have him submit a plan first. Then review and approve it.`
-
-What to observe: Is the shutdown handshake complete (request → confirm → shutdown)? Does `pending_requests` state transition correctly? Is `request_id` consistent between request and response? Can the idle teammate receive shutdown_request?
-
----
-
-## What's Next
-
-In s15-s16, Lead must assign tasks to each teammate. "Alice does this, Bob does that." With 10 unclaimed tasks on the board, Lead has to manually assign each one.
-
-What if teammates could check the board and claim tasks themselves? Lead only needs to create tasks; teammates discover, claim, and complete them on their own.
-
-s17 Autonomous Agents → Self-organizing teammates, no leader assignment needed.
-
-<details>
-<summary>Deep Dive into CC Source</summary>
-
-CC's team protocol implementation (`teammateMailbox.ts`, 1184 lines) shares the same core structure as the teaching version: request_id + approve/reject request-response pattern. Differences:
-
-**Shutdown protocol**: CC's shutdown is three-way communication (`teammateMailbox.ts:720-763`, `SendMessageTool.ts:268-430`). Lead sends `shutdown_request`, teammate replies `shutdown_approved` (or `shutdown_rejected` with reason), system sends `teammate_terminated` to notify all parties. After confirmation, system cleans up pane (tmux/iTerm2), unassigns tasks, removes member from team config (`useInboxPoller.ts:677-800`). Teaching version uses `shutdown_response` as a unified name; real source splits into `shutdown_approved` and `shutdown_rejected` as two separate message types.
-
-**Plan approval**: In the real source, plan approval request is generated by `ExitPlanModeV2Tool.ts:263-312` when a plan-mode-required teammate exits plan mode. `useInboxPoller.ts:599-661` currently auto-writes approval and passes the request to Lead as context (regular message). `SendMessageTool.ts:434-518` retains explicit approve/reject response capability — approval can simultaneously set `permissionMode` (e.g. "approved but run in plan mode"), response can include `feedback` string for teammate to revise and resubmit. Not a simple "Lead manually uses review_plan tool" flow.
-
-**Message format**: CC's protocol messages are structured JSON (with Zod schema validation), teaching version uses simple type + metadata dict. Field names are also inconsistent: permission uses `request_id` (`teammateMailbox.ts:453-462`), shutdown and plan approval use `requestId` (`teammateMailbox.ts:684-763`).
-
-**Execution gating**: CC's teammates have full permission gating. Unapproved high-risk operations are intercepted, not optional. Teaching version only demonstrates the message flow without execution interception.
-
-**Generality**: Teaching version's single FSM (pending → approved | rejected) maps to two protocols. This simplification is correct. CC's protocol messages all share the same request id correlation mechanism.
-
-</details>
-
-<!-- translation-sync: zh@v1, en@v1, ja@v1 -->
+The demo hosts a weather agent via A2A, then calls it through an `A2AAgent` client — demonstrating both server and client sides of the protocol.

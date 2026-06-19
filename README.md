@@ -52,7 +52,7 @@ cd learn-Microsoft-Agent-Framework
 # 2. Configure your API key (once)
 cp appsettings.example.json appsettings.json
 #    then edit appsettings.json and replace PUT-YOUR-KEY-HERE
-#    or just export OPENAI_API_KEY=sk-...
+#    or just export DEEPSEEK_API_KEY=sk-...
 
 # 3. Build everything
 dotnet build
@@ -141,19 +141,19 @@ Every chapter reads from `appsettings.json` or environment variables &mdash; sam
 
 ```json
 {
-  "baseUrl": "https://api.openai.com/v1",
-  "modelId": "gpt-4o-mini",
+  "baseUrl": "https://api.deepseek.com/v1",
+  "modelId": "deepseek-chat",
   "apiKey":  "PUT-YOUR-KEY-HERE"
 }
 ```
 
 **Key resolution order:**
 1. `apiKey` in `appsettings.json` (anything other than `PUT-YOUR-KEY-HERE`)
-2. `OPENAI_API_KEY` environment variable
+2. `DEEPSEEK_API_KEY` environment variable
 
 > **Per-chapter override:** copy `sNN_*/appsettings.example.json` to `sNN_*/appsettings.json` and edit. The `appsettings.json` file is gitignored at every `s*/` level &mdash; **never commit it**.
 
-The default engine is OpenAI-compatible, but `baseUrl` lets you point at any OpenAI-compatible endpoint (Azure OpenAI, Ollama, vLLM, llama.cpp server, DeepSeek, etc.).
+The default engine is DeepSeek (OpenAI-compatible), but `baseUrl` lets you point at any OpenAI-compatible endpoint (OpenAI, Azure OpenAI, Ollama, vLLM, llama.cpp, etc.).
 
 ---
 

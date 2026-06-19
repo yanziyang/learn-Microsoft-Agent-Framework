@@ -1,124 +1,84 @@
-# s05: TodoWrite — 没有计划的 Agent，做着做着就偏了
+# s07: Agent Planning with TodoWrite (Agent 规划)
 
-[中文](README.md) · [English](README.en.md) · [日本語](README.ja.md)
+`[ s01 ] s02 > s03 > s04 > s05 > s06 | [ s07 ] s08 > s09 > s10 > s11 > s12`
 
-s01 → s02 → s03 → s04 → `s05` → [s06](../s06_subagent/) → s07 → ... → s20
-
-> *"没有计划的 agent 走哪算哪"* — 先列步骤再动手，长任务更不容易漏项。
+> *把复杂任务拆解为可追踪的步骤。*
 >
-> **Harness 层**: 规划 — 让 Agent 在动手之前先想清楚。
-
----
+> **规划层**: 自定义 `todo_write` 工具, 实现有状态的任务追踪。
 
 ## 问题
 
-给 Agent 一个复杂任务："把所有 Python 文件改成 snake_case 命名，然后跑测试，修好失败。"
-
-Agent 开始干活，改了 3 个文件，跑了个测试，发现 2 个失败，开始修。修着修着，它忘了最初是"改成 snake_case"，测试失败把注意力全吸走了。
-
-对话越长越严重：工具结果不断填满上下文，系统提示的影响力被稀释。一个 10 步重构，做完 1-3 步就开始即兴发挥，因为 4-10 步已经被挤出注意力了。
-
----
+复杂任务需要多步规划。没有结构化状态, Agent 会忘记哪些完成了、哪些待处理、下一步是什么。
 
 ## 解决方案
 
-![Todo Overview](images/todo-overview.svg)
+```mermaid
+graph TD
+    A[复杂任务] --> B[todo_write: 创建计划]
+    B --> C[步骤 1: 执行]
+    C --> D[todo_write: 标记完成]
+    D --> E[步骤 2: 执行]
+    E --> F[todo_write: 标记完成]
+    F --> G[完成]
+```
 
-保留上一章的最小 hook 结构，重点看新增的 `todo_write` 工具和 reminder 机制。`todo_write` 本身不做任何实际工作，不能读文件、不能跑命令，只是让 Agent 在动手之前先理清思路。
-
-dispatch 机制不变，新工具仍然走 `TOOL_HANDLERS[block.name]` 分发。但为了演示 todo reminder，循环里加了一个计数器：连续 3 轮没调 `todo_write` 就注入一条提醒。
-
----
+自定义 `todo_write` 工具让 Agent 维护一个跨轮次持久化的结构化任务列表。
 
 ## 工作原理
 
-**todo_write 工具**，接收一个带状态的列表，保存在当前进程内存中，同时在终端显示进度：
+1. 定义 todo 状态和工具:
 
 ```csharp
-var state = new TodoTools.TodoState();
+var todoState = new List<(string content, string status)>();
 
-TodoTools.Register(tools, state);
-```
-
-工具定义和其他 5 个工具一起加入 dispatch map：
-
-```csharp
-BashTool.Register(tools, workDir);
-FileTools.Register(tools, workDir);
-TodoTools.Register(tools, state);   // s05: new tool
-```
-
-**Nag reminder**，模型连续 3 轮没调 `todo_write` 时，自动注入一条提醒（教学版机制，CC 源码中没有这个固定轮数逻辑）：
-
-```csharp
-if (++roundsSinceTodo >= 3 && messages.Count > 0)
+[Description("添加 todo 项")]
+static string TodoWrite(
+    [Description("每行一个 content|status")] string items,
+    List<(string, string)> state)
 {
-    messages.Add(Message.UserText("<reminder>Update your todos.</reminder>"));
-    roundsSinceTodo = 0;
+    state.Clear();
+    foreach (var line in items.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+    {
+        var parts = line.Split('|', 2);
+        state.Add((parts[0].Trim(), parts.Length > 1 ? parts[1].Trim() : "pending"));
+    }
+    return $"已更新: {state.Count} 项";
 }
 ```
 
-Agent 收到任务后的典型流程：先调 `todo_write` 列出所有步骤（全 `pending`）→ 做一个步骤，改成 `in_progress` → 做完改成 `completed` → 看下一个 `pending` → 继续。连续 3 轮没有调用 `todo_write` 时，循环会在下一次 LLM 调用前追加一条 reminder。
+2. 通过 `AIFunctionFactory` 注册为工具:
 
-**关键洞察**：todo_write 不给 Agent 增加任何**执行能力**。它增加的是**规划能力**。
-
----
-
-## 相对 s04 的变更
-
-| 组件 | 之前 (s04) | 之后 (s05) |
-|------|-----------|-----------|
-| 工具数量 | 5 (bash, read, write, edit, glob) | 6 (+todo_write) |
-| 规划能力 | 无 | 带状态的 TODO 列表 + nag reminder |
-| SYSTEM 提示 | 通用提示 | 加入 "先计划再执行" 引导 |
-| 循环 | 不变 | dispatch 不变，新增 rounds_since_todo 计数器和 reminder 注入 |
-
----
-
-## 试一下
-
-```sh
-cd learn-claude-code
-dotnet run --project s05_todo_write
+```csharp
+var todoTool = AIFunctionFactory.Create(
+    (string items) => TodoWrite(items, todoState),
+    name: "todo_write",
+    description: "管理 todo 列表. 格式: 每行一个 'content|status'.");
+tools.Add(todoTool);
 ```
 
-试试这些 prompt：
+3. Agent 使用 `todo_write` 来规划和追踪进度:
 
-1. `Refactor s05_todo_write/example/hello.py: add type hints, docstrings, and a main guard`（先列 3 步再执行）
-2. `Create a Python package under s05_todo_write/example/demo_pkg with __init__.py, utils.py, and tests/test_utils.py`
-3. `Review Python files under s05_todo_write/example and fix any style issues`
+```
+User: "重构 auth 模块并加测试"
+Agent 调用: todo_write("重构 auth 服务|pending\n写单元测试|pending\n运行测试|pending")
+Agent 调用: todo_write("重构 auth 服务|done\n写单元测试|pending\n运行测试|pending")
+```
 
-观察重点：第一次工具调用是不是 `todo_write`？TODO 列了几步？执行过程中状态有没有从 `pending` 变成 `in_progress` / `completed`？
+## 关键 API
 
----
+| API | 用途 |
+|-----|------|
+| `AIFunctionFactory.Create()` | 注册 todo 工具 |
+| `todo_write` | LLM 调用的自定义工具名 |
+| 闭包捕获 | 在工具和主代码间共享 `todoState` |
+| `[Description]` | 告诉 LLM 期望的格式 |
 
-## 接下来
+## 试一试
 
-Agent 能计划了。但如果一个任务太大，比如"重构整个认证模块"，光靠 TODO 列表不够。这个任务本身就是几十个小任务的集合，放在同一个对话里会被上下文淹没。
+```sh
+dotnet run --project s07_planning
+```
 
-s06 Subagent → 把大任务拆成子任务，每个子任务派一个独立的 Agent。它们有自己的干净上下文，不会互相污染。
-
-<details>
-<summary>深入 CC 源码</summary>
-
-CC 中有两套任务系统并存（`tasks.ts:133-139`）：
-
-- **TodoWrite（V1）**：一个简单的列表工具，数据在内存 AppState 中维护（`TodoWriteTool.ts:65-103`）。教学版也保存在进程内存里，退出后清空
-- **Task System（V2 = s12）**：文件持久化、依赖图、并发锁、ownership
-
-切换由 `isTodoV2Enabled()` 控制。当前源码的实现逻辑：交互式会话中 V2 默认启用，非交互式会话（SDK）中 V1 默认启用；设置 `CLAUDE_CODE_ENABLE_TASKS` 环境变量可强制启用 V2。注意源码注释 "Force-enable tasks in non-interactive mode" 描述的是 env var 路径的用途，和默认分支的返回值语义不同，阅读时需区分。
-
-教学版省略了真实源码中的 `activeForm` 字段（`utils/todo/types.ts:8-15`）。CC 用它给 UI spinner 展示"正在做什么"，教学版只有终端输出，不需要这个字段。
-
-教学版的 nag reminder（3 轮未更新就注入提醒）是教学机制。CC 源码中没有固定的"3 轮"逻辑，更接近的是 `TodoWriteTool.ts:72-107` 中当 3 个以上 todo 全部完成但没有 verification 项时，追加 verification nudge。
-
-Task System 相比 TodoWrite 的核心增量：
-- 文件持久化（Claude 配置目录下 `tasks/{taskListId}/{taskId}.json`）而非内存列表
-- `blockedBy` 依赖图而非平铺列表
-- `proper-lockfile` 并发安全而非无锁
-- 四个独立工具（Create/Get/Update/List）而非一个
-- TaskCreated / TaskCompleted hooks（`TaskCreateTool.ts:80-129`、`TaskUpdateTool.ts:231-260`）供外部系统集成
-
-</details>
-
-<!-- translation-sync: zh@v1, en@v1, ja@v1 -->
+试试这些 prompt:
+1. `Create a plan to build a hello-world web app`
+2. `Mark the first task as done and add a new task for deployment`

@@ -4,7 +4,7 @@
 
 > *不阻塞 Agent 地运行长操作。*
 >
-> **异步层**: `BackgroundService` 用于非阻塞工具执行。
+> **异步层**: `AIFunctionFactory` 工具 + `<task_notification>` 注入。
 
 ## 问题
 
@@ -16,57 +16,77 @@
 sequenceDiagram
     participant U as 用户
     participant A as Agent
-    participant B as 后台服务
+    participant T as 后台任务
 
-    U->>A: "抓取这个网站"
-    A->>B: 启动后台任务
+    U->>A: "启动一个长时间扫描"
+    A->>T: start_task 工具 → Task.Run
     A-->>U: "任务已启动, 完成后通知你"
-    B->>B: 处理中...
-    B->>A: 任务完成
-    A-->>U: "结果如下"
+    T->>T: 处理中 (3秒)...
+    T-->>A: <task_notification> 结果
+    A-->>U: "扫描完成, 结果如下"
 ```
 
-使用 .NET 的 `BackgroundService` 模式异步运行长操作, 结果注入回对话中。
+注册 `AIFunctionFactory` 工具, 通过 `Task.Run` 启动后台工作并立即返回。任务完成后, 将结果作为 `<task_notification>` 用户消息注入下一轮 Agent 对话。
 
 ## 工作原理
 
-1. 定义后台任务工具:
+1. 通过 `AIFunctionFactory` 定义后台任务工具:
 
 ```csharp
-[Description("启动一个长时间运行的后台任务")]
-static string StartBackgroundTask([Description("任务描述")] string task)
+var backgroundTasks = new ConcurrentDictionary<string, Task<string>>();
+
+var tools = new List<AITool>
 {
-    // 立即返回 -- 实际工作在 BackgroundService 中进行
-    return $"任务 '{task}' 已启动. 完成后会通知你.";
-}
+    AIFunctionFactory.Create(
+        (string command) => {
+            var id = $"bg_{Guid.NewGuid().ToString()[..8]}";
+            backgroundTasks[id] = Task.Run(async () => {
+                await Task.Delay(3000);
+                return $"Completed: {command}";
+            });
+            return $"Started background task {id}";
+        },
+        name: "start_task",
+        description: "Start a long-running background task."),
+    AIFunctionFactory.Create(
+        (string taskId) => backgroundTasks.TryGetValue(taskId, out var t)
+            ? (t.IsCompletedSuccessfully ? $"Done: {t.Result}" : "running")
+            : "not found",
+        name: "check_task",
+        description: "Check task status."),
+};
 ```
 
-2. 实现后台服务:
+2. 创建带工具的 `ChatClientAgent`:
 
 ```csharp
-sealed class TaskRunner : BackgroundService
-{
-    protected override async Task ExecuteAsync(CancellationToken ct)
-    {
-        while (!ct.IsCancellationRequested)
-        {
-            // 轮询待处理任务, 执行它们, 注入结果
-            await Task.Delay(1000, ct);
-        }
-    }
-}
+var agent = new ChatClientAgent(chatClient,
+    instructions: "你可以启动后台任务。任务完成后会收到 <task_notification>。",
+    name: "background-agent",
+    tools: tools);
 ```
 
-3. 结果作为系统消息注入 Agent 的对话中。
+3. 任务完成后, 将结果作为用户消息注入:
+
+```csharp
+var completed = backgroundTasks
+    .Where(kv => kv.Value.IsCompletedSuccessfully)
+    .Select(kv => $"<task_notification id=\"{kv.Key}\">{kv.Value.Result}</task_notification>");
+
+var notification = new ChatMessage(ChatRole.User,
+    $"{string.Join("\n", completed)}\nAll tasks complete. Summarize results.");
+await agent.RunAsync(notification, session);
+```
 
 ## 关键 API
 
 | API | 用途 |
 |-----|------|
-| `BackgroundService` | .NET 长时间运行后台工作的基类 |
-| `ExecuteAsync()` | 后台循环 |
-| `CancellationToken` | 优雅关闭支持 |
-| 系统消息注入 | 将结果推回给 Agent |
+| `AIFunctionFactory.Create()` | 注册后台任务工具 |
+| `ChatClientAgent` | 带工具分发的 Agent |
+| `ConcurrentDictionary<string, Task<T>>` | 跟踪运行中的后台工作 |
+| `<task_notification>` 注入 | 将完成的结果推回 Agent 对话 |
+| `AgentRunOptions.AllowBackgroundResponses` | MAF 原生后台响应 (仅 OpenAI Responses API) |
 
 ## 试一试
 
@@ -74,6 +94,4 @@ sealed class TaskRunner : BackgroundService
 dotnet run --project s14_background_tasks
 ```
 
-试试这些 prompt:
-1. `Start a background task to count to 100`
-2. `What background tasks are running?`
+演示启动两个后台任务, 等待完成, 注入 `<task_notification>` 消息, 并让 Agent 汇总结果。

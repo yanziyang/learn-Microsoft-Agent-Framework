@@ -20,8 +20,8 @@ export async function generateMetadata({
   const { locale } = await params;
   const messages = metaMessages[locale] || metaMessages.en;
   return {
-    title: messages.meta?.title || "Learn Claude Code",
-    description: messages.meta?.description || "Build an AI coding agent from scratch, one concept at a time",
+    title: messages.meta?.title || "Learn Microsoft Agent Framework",
+    description: messages.meta?.description || "A 20-lesson hands-on guide to MAF and MEAI in .NET 10 / C#",
   };
 }
 

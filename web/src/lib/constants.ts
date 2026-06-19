@@ -143,7 +143,7 @@ export const VERSION_META: Record<string, {
     title: "Background Tasks",
     subtitle: "Slow Work Goes to the Background",
     coreAddition: "Async tool execution",
-    keyInsight: "BackgroundService lets agents continue reasoning while slow operations complete elsewhere.",
+    keyInsight: "AIFunctionFactory tools start Task.Run work; <task_notification> messages inject results into the next agent turn.",
     layer: "concurrency",
     prevVersion: "s13",
   },

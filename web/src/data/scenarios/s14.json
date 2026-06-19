@@ -1,45 +1,56 @@
 {
   "version": "s14",
   "title": "Background Tasks",
-  "description": "Long-running work moves to a thread while the agent keeps the main loop responsive.",
+  "description": "AIFunctionFactory tools start Task.Run work; results inject as <task_notification> into the next agent turn.",
   "steps": [
     {
       "type": "user_message",
-      "content": "Run a long repository scan and tell me when it finishes.",
-      "annotation": "The user asks for work that may exceed the normal foreground loop."
+      "content": "Start two background tasks: one to build the project and one to run tests.",
+      "annotation": "The user requests work that may take time. The agent uses start_task tools."
     },
     {
       "type": "assistant_text",
-      "content": "I'll start the scan in the background so we can keep the conversation responsive.",
-      "annotation": "The model chooses the background path instead of blocking on the tool result."
+      "content": "I'll start both tasks in the background.",
+      "annotation": "The agent decides to call start_task for each operation."
     },
     {
       "type": "tool_call",
-      "toolName": "bash",
-      "content": "rg \"TODO|FIXME\" .",
-      "toolInput": "{\"background\":true}",
-      "annotation": "The tool call is wrapped with a background flag."
-    },
-    {
-      "type": "system_event",
-      "content": "background_tasks[task_42] = Thread(target=run_bash)",
-      "annotation": "The runtime starts a thread and returns immediately."
+      "toolName": "start_task",
+      "content": "dotnet build",
+      "annotation": "AIFunctionFactory.Create registers start_task. It launches Task.Run and returns immediately with a task ID."
     },
     {
       "type": "tool_result",
-      "toolName": "bash",
-      "content": "Started background task task_42.",
-      "annotation": "A placeholder result is appended to the main conversation."
+      "toolName": "start_task",
+      "content": "Started background task bg_a1b2.",
+      "annotation": "The tool returns a task ID immediately — the agent loop is not blocked."
+    },
+    {
+      "type": "tool_call",
+      "toolName": "start_task",
+      "content": "dotnet test",
+      "annotation": "A second background task starts concurrently."
+    },
+    {
+      "type": "tool_result",
+      "toolName": "start_task",
+      "content": "Started background task bg_c3d4.",
+      "annotation": "Both tasks now run in parallel via Task.Run."
     },
     {
       "type": "system_event",
-      "content": "<task_notification id=\"task_42\" status=\"done\">Found 12 matches.</task_notification>",
-      "annotation": "The completed thread injects a notification back into the next loop."
+      "content": "[waiting 4s for background tasks to complete...]",
+      "annotation": "The demo waits for tasks to finish. In production, the agent would continue chatting."
+    },
+    {
+      "type": "system_event",
+      "content": "<task_notification id=\"bg_a1b2\">Completed: dotnet build</task_notification>\n<task_notification id=\"bg_c3d4\">Completed: dotnet test</task_notification>",
+      "annotation": "Completed results are collected and injected as a ChatMessage(ChatRole.User, ...) into the next RunAsync call."
     },
     {
       "type": "assistant_text",
-      "content": "The scan finished with 12 matches. I'll summarize the most important ones now.",
-      "annotation": "The agent consumes the background result as fresh context."
+      "content": "Both tasks completed: the build succeeded and all tests passed.",
+      "annotation": "The agent consumes the <task_notification> as fresh context and summarizes the results."
     }
   ]
 }

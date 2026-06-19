@@ -12,9 +12,9 @@ var config = new ConfigurationBuilder()
     .AddEnvironmentVariables()
     .Build();
 
-var baseUrl = config["baseUrl"] ?? "https://api.openai.com/v1"; // Replace with your provider's endpoint
-var apiKey = config["apiKey"] ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? throw new Exception("No API key found. Set apiKey in appsettings.json or OPENAI_API_KEY env var.");
-var modelId = config["modelId"] ?? "gpt-4o-mini";
+var baseUrl = config["baseUrl"] ?? "https://api.deepseek.com/v1"; // OpenAI-compatible; replace with your provider's endpoint
+var apiKey = config["apiKey"] ?? Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY") ?? throw new InvalidOperationException("No API key. Set apiKey in appsettings.json or DEEPSEEK_API_KEY env var.");
+var modelId = config["modelId"] ?? "deepseek-chat";
 
 // ── Create IChatClient → AIAgent ──
 // ChatClientAgent wraps an IChatClient with agent capabilities:

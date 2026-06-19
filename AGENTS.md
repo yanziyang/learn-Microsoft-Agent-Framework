@@ -30,14 +30,14 @@ CI in `.github/workflows/` builds the .NET solution AND the Next.js `web/` app. 
 
 ## API key / LLM config
 
-The default engine is **OpenAI-compatible**. Configure via `appsettings.json` or environment variables:
-- `baseUrl`: OpenAI-compatible endpoint (default: `https://api.openai.com/v1`)
-- `modelId`: Model identifier (default: `gpt-4o-mini`)
+The default engine is **OpenAI-compatible** (DeepSeek by default). Configure via `appsettings.json` or environment variables:
+- `baseUrl`: OpenAI-compatible endpoint (default: `https://api.deepseek.com/v1`)
+- `modelId`: Model identifier (default: `deepseek-chat`)
 - `apiKey`: API key
 
 Key resolution order:
 1. `apiKey` in `appsettings.json` (anything other than `PUT-YOUR-KEY-HERE`).
-2. `OPENAI_API_KEY` env var.
+2. `DEEPSEEK_API_KEY` env var.
 
 Per-chapter config: copy `sNN_*/appsettings.example.json` to `sNN_*/appsettings.json` and edit. `appsettings.json` is gitignored at every `s*/` level — never commit it.
 

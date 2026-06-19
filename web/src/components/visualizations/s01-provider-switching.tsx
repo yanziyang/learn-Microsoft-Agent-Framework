@@ -19,18 +19,18 @@ interface Provider {
 
 const PROVIDERS: Provider[] = [
   {
-    id: "openai",
-    name: "OpenAI",
-    endpoint: "api.openai.com/v1",
+    id: "deepseek",
+    name: "DeepSeek",
+    endpoint: "api.deepseek.com/v1",
     color: "border-emerald-300 bg-emerald-50",
     activeColor: "border-emerald-500 bg-emerald-100 ring-2 ring-emerald-400",
     darkColor: "dark:border-zinc-700 dark:bg-zinc-800/50",
     darkActiveColor: "dark:border-emerald-500 dark:bg-emerald-950/40 dark:ring-emerald-500",
   },
   {
-    id: "anthropic",
-    name: "Anthropic",
-    endpoint: "api.anthropic.com/v1",
+    id: "openai",
+    name: "OpenAI",
+    endpoint: "api.openai.com/v1",
     color: "border-violet-300 bg-violet-50",
     activeColor: "border-violet-500 bg-violet-100 ring-2 ring-violet-400",
     darkColor: "dark:border-zinc-700 dark:bg-zinc-800/50",
@@ -62,8 +62,8 @@ const ACTIVE_PROVIDER_PER_STEP: number[] = [-1, -1, 0, 1, 2, 3, 4];
 const CONFIG_PER_STEP: (string | null)[] = [
   null,
   null,
-  "# OpenAI (default)\nbaseUrl=https://api.openai.com/v1\nmodelId=gpt-4o-mini",
-  "# Anthropic\nbaseUrl=https://api.anthropic.com/v1\nmodelId=claude-sonnet-4-20250514",
+  "# DeepSeek (default)\nbaseUrl=https://api.deepseek.com/v1\nmodelId=deepseek-chat",
+  "# OpenAI\nbaseUrl=https://api.openai.com/v1\nmodelId=gpt-4o-mini",
   "# Ollama (Local)\nbaseUrl=http://localhost:11434/v1\nmodelId=llama3",
   "# Azure OpenAI\nbaseUrl=https://your-resource.openai.azure.com\nmodelId=gpt-4o-mini",
   "# No code change — just config\nbaseUrl=...  modelId=...  apiKey=...",
@@ -72,8 +72,8 @@ const CONFIG_PER_STEP: (string | null)[] = [
 const STEP_INFO = [
   { title: "The Interface", desc: "IChatClient defines the contract. Your app code never knows which provider is behind it." },
   { title: "Your App Code", desc: "Application code calls IChatClient.GetResponseAsync() — provider-agnostic, always identical." },
-  { title: "→ OpenAI", desc: "new ChatClient(...).AsIChatClient() wraps the OpenAI SDK behind the same interface." },
-  { title: "→ Anthropic", desc: "AnthropicClient(...).Messages.AsIChatClient() — same interface, different backend. Zero code change." },
+  { title: "→ DeepSeek", desc: "new ChatClient(model, ...).AsIChatClient() wraps the OpenAI-compatible endpoint behind the same interface." },
+  { title: "→ OpenAI", desc: "new OpenAIClient(...).GetChatClient(model).AsIChatClient() — same interface, different backend. Zero code change." },
   { title: "→ Ollama (Local)", desc: "OllamaApiClient(...).AsIChatClient() — runs against a local model, no API key needed." },
   { title: "→ Azure OpenAI", desc: "AzureOpenAIClient(...).GetChatClient(model).AsIChatClient() — enterprise endpoint." },
   { title: "One Interface, Any Backend", desc: "Switching providers = editing appsettings.json. No recompile, no code change, no risk." },

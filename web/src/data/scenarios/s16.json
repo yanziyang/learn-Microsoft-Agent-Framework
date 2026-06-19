@@ -1,45 +1,52 @@
 {
   "version": "s16",
-  "title": "Team Protocols",
-  "description": "Typed requests, request ids, and response matching turn team chat into a protocol.",
+  "title": "A2A Protocol",
+  "description": "A2AAgent wraps a remote agent behind AIAgent; AddA2AServer + MapA2AHttpJson expose agents via the A2A protocol.",
   "steps": [
     {
+      "type": "system_event",
+      "content": "builder.AddAIAgent(\"weather-agent\", ...);\nbuilder.AddA2AServer(\"weather-agent\");\napp.MapA2AHttpJson(\"weather-agent\", \"/a2a/weather\");",
+      "annotation": "Server side: register the agent, attach an A2A server, and map HTTP+JSON endpoints."
+    },
+    {
+      "type": "system_event",
+      "content": "GET /a2a/weather/card → AgentCard { Name: \"WeatherAgent\", Skills: [weather-lookup] }",
+      "annotation": "The server publishes an AgentCard at GET /card — callers discover capabilities."
+    },
+    {
+      "type": "system_event",
+      "content": "IA2AClient a2aClient = new A2AClient(new Uri(\"http://localhost:5161/a2a/weather\"), http);",
+      "annotation": "Client side: create an A2AClient pointing at the server's A2A endpoint."
+    },
+    {
+      "type": "system_event",
+      "content": "AIAgent remoteAgent = a2aClient.AsAIAgent(name: \"RemoteWeatherAgent\");",
+      "annotation": "AsAIAgent() wraps the remote agent as a local AIAgent — full MAF integration."
+    },
+    {
       "type": "user_message",
-      "content": "Ask the reviewer agent for a plan before it edits anything.",
-      "annotation": "The lead needs a structured plan request, not free-form chat."
-    },
-    {
-      "type": "tool_call",
-      "toolName": "request_plan",
-      "content": "{\"to\":\"reviewer\",\"task\":\"Review the parser change before editing.\"}",
-      "annotation": "The protocol records a pending request with a request_id."
+      "content": "What is the weather in London?",
+      "annotation": "The user sends a message to the local A2AAgent."
     },
     {
       "type": "system_event",
-      "content": "pending_requests[req_18] = {kind:\"plan\", to:\"reviewer\", status:\"pending\"}",
-      "annotation": "ProtocolState keeps the request open until a matching response arrives."
+      "content": "POST /a2a/weather  {jsonrpc:'2.0', method:'message/send', params:{message:{...}}}",
+      "annotation": "A2AAgent.RunAsync translates the call into an A2A JSON-RPC request to the server."
     },
     {
       "type": "system_event",
-      "content": "dispatch_message -> reviewer inbox: {type:\"plan_request\", request_id:\"req_18\"}",
-      "annotation": "The message is typed so the teammate knows how to handle it."
+      "content": "Server → ChatClientAgent.RunAsync(\"What is the weather in London?\")",
+      "annotation": "The server's A2AAgentHandler delegates to the hosted ChatClientAgent."
     },
     {
-      "type": "tool_call",
-      "toolName": "submit_plan",
-      "content": "{\"request_id\":\"req_18\",\"plan\":[\"inspect parser\",\"run fixtures\",\"report risks\"]}",
-      "annotation": "The teammate responds with the same request_id."
+      "type": "assistant_text",
+      "content": "The weather in London is 15°C and cloudy.",
+      "annotation": "The response flows back through the A2A protocol to the A2AAgent client."
     },
     {
       "type": "system_event",
-      "content": "match_response(req_18) -> status: ready_for_review",
-      "annotation": "The lead can correlate the reply with the exact request."
-    },
-    {
-      "type": "tool_call",
-      "toolName": "review_plan",
-      "content": "{\"request_id\":\"req_18\",\"approved\":true}",
-      "annotation": "The lead explicitly approves the plan before work proceeds."
+      "content": "remoteAgent.AsAIFunction() → can be used as a tool in another agent\nAgentWorkflowBuilder.BuildSequential([localAgent, remoteAgent])",
+      "annotation": "A2AAgent IS-A AIAgent — compose it as a tool, in a workflow, or any MAF orchestration."
     }
   ]
 }

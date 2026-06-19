@@ -15,10 +15,10 @@ var config = new ConfigurationBuilder()
     .AddEnvironmentVariables()
     .Build();
 
-var baseUrl = config["baseUrl"] ?? "https://api.deepseek.com/anthropic";
+var baseUrl = config["baseUrl"] ?? "https://api.deepseek.com/v1";
 var apiKey = config["apiKey"] ?? Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY")
-    ?? throw new Exception("Set apiKey in appsettings.json or DEEPSEEK_API_KEY env var.");
-var modelId = config["modelId"] ?? "deepseek-v4-flash";
+    ?? throw new InvalidOperationException("Set apiKey in appsettings.json or DEEPSEEK_API_KEY env var.");
+var modelId = config["modelId"] ?? "deepseek-chat";
 
 IChatClient chatClient = new ChatClient(modelId, new System.ClientModel.ApiKeyCredential(apiKey),
     new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })

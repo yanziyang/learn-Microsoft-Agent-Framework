@@ -4,7 +4,7 @@
 
 > *Run long operations without blocking the agent.*
 >
-> **Async layer**: `BackgroundService` for non-blocking tool execution.
+> **Async layer**: `AIFunctionFactory` tools + `<task_notification>` injection.
 
 ## Problem
 
@@ -16,57 +16,78 @@ Some tools take minutes (web scraping, large file processing, API polling). Bloc
 sequenceDiagram
     participant U as User
     participant A as Agent
-    participant B as Background Service
+    participant T as Background Task
 
-    U->>A: "Scrape this website"
-    A->>B: Start background task
+    U->>A: "Start a long scan"
+    A->>T: start_task tool → Task.Run
     A-->>U: "Task started, I'll notify you"
-    B->>B: Processing...
-    B->>A: Task complete
-    A-->>U: "Here are the results"
+    T->>T: Processing (3s)...
+    T-->>A: <task_notification> result
+    A-->>U: "Scan complete, here are the results"
 ```
 
-Use .NET's `BackgroundService` pattern to run long operations asynchronously, with results injected back into the conversation.
+Register `AIFunctionFactory` tools that start `Task.Run` work and return immediately. When tasks complete, inject results as `<task_notification>` user messages into the next agent turn.
 
 ## How It Works
 
-1. Define a background task tool:
+1. Define background-task tools via `AIFunctionFactory`:
 
 ```csharp
-[Description("Start a long-running background task")]
-static string StartBackgroundTask([Description("Task description")] string task)
+var backgroundTasks = new ConcurrentDictionary<string, Task<string>>();
+
+var tools = new List<AITool>
 {
-    // Returns immediately -- actual work happens in BackgroundService
-    return $"Task '{task}' started. You'll be notified when complete.";
-}
+    AIFunctionFactory.Create(
+        (string command) => {
+            var id = $"bg_{Guid.NewGuid().ToString()[..8]}";
+            backgroundTasks[id] = Task.Run(async () => {
+                await Task.Delay(3000);
+                return $"Completed: {command}";
+            });
+            return $"Started background task {id}";
+        },
+        name: "start_task",
+        description: "Start a long-running background task."),
+    AIFunctionFactory.Create(
+        (string taskId) => backgroundTasks.TryGetValue(taskId, out var t)
+            ? (t.IsCompletedSuccessfully ? $"Done: {t.Result}" : "running")
+            : "not found",
+        name: "check_task",
+        description: "Check task status."),
+};
 ```
 
-2. Implement the background service:
+2. Create a `ChatClientAgent` with these tools:
 
 ```csharp
-sealed class TaskRunner : BackgroundService
-{
-    protected override async Task ExecuteAsync(CancellationToken ct)
-    {
-        while (!ct.IsCancellationRequested)
-        {
-            // Poll for pending tasks, execute them, inject results
-            await Task.Delay(1000, ct);
-        }
-    }
-}
+var agent = new ChatClientAgent(chatClient,
+    instructions: "You can start background tasks. " +
+                  "When tasks complete, you'll receive a <task_notification>.",
+    name: "background-agent",
+    tools: tools);
 ```
 
-3. Results are injected as system messages into the agent's conversation.
+3. After tasks complete, inject results as user messages:
+
+```csharp
+var completed = backgroundTasks
+    .Where(kv => kv.Value.IsCompletedSuccessfully)
+    .Select(kv => $"<task_notification id=\"{kv.Key}\">{kv.Value.Result}</task_notification>");
+
+var notification = new ChatMessage(ChatRole.User,
+    $"{string.Join("\n", completed)}\nAll tasks complete. Summarize results.");
+await agent.RunAsync(notification, session);
+```
 
 ## Key APIs
 
 | API | Purpose |
 |-----|---------|
-| `BackgroundService` | .NET base class for long-running background work |
-| `ExecuteAsync()` | The background loop |
-| `CancellationToken` | Graceful shutdown support |
-| System message injection | Push results back to the agent |
+| `AIFunctionFactory.Create()` | Register background-task tools |
+| `ChatClientAgent` | Agent with tool dispatch |
+| `ConcurrentDictionary<string, Task<T>>` | Track running background work |
+| `<task_notification>` injection | Push completed results back into the conversation |
+| `AgentRunOptions.AllowBackgroundResponses` | MAF native background responses (OpenAI Responses API only) |
 
 ## Try It
 
@@ -74,6 +95,4 @@ sealed class TaskRunner : BackgroundService
 dotnet run --project s14_background_tasks
 ```
 
-Prompts to try:
-1. `Start a background task to count to 100`
-2. `What background tasks are running?`
+The demo starts two background tasks, waits for completion, injects `<task_notification>` messages, and asks the agent to summarize.

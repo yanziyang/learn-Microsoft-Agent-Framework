@@ -23,9 +23,9 @@ using var tracerProvider = Sdk.CreateTracerProviderBuilder()
     .Build();
 
 // ── Register IChatClient ──
-var baseUrl = builder.Configuration["baseUrl"] ?? "https://api.openai.com/v1";
-var apiKey = builder.Configuration["apiKey"] ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? "";
-var modelId = builder.Configuration["modelId"] ?? "gpt-4o-mini";
+var baseUrl = builder.Configuration["baseUrl"] ?? "https://api.deepseek.com/v1";
+var apiKey = builder.Configuration["apiKey"] ?? Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY") ?? "";
+var modelId = builder.Configuration["modelId"] ?? "deepseek-chat";
 
 IChatClient baseClient = new OpenAIClient(new ApiKeyCredential(apiKey),
     new OpenAIClientOptions { Endpoint = new Uri(baseUrl) })
